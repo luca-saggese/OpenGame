@@ -1,0 +1,13 @@
+name: 'gamecursor'
+channels:
+  - 'conda-forge'
+  - 'defaults'
+dependencies:
+  - 'python=3.11'
+  - 'ffmpeg'
+  - 'pip'
+  - pip:
+      - 'symusic'
+      - 'rembg'
+      - 'opencv-python-headless'
+      - 'numpy'
