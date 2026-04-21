@@ -39,7 +39,7 @@ A curated gallery of web games generated end-to-end by OpenGame from a single pr
   <tr>
     <td align="center" valign="top" width="50%">
       <p align="center"><b><font size="4">Marvel Avengers: Infinity Strike</font></b></p>
-      <video src="https://github.com/user-attachments/assets/748bc9fa-cf8f-46fc-ba29-731dd18d7cb4"
+      <video src="https://github.com/user-attachments/assets/5c8d1ef9-48cb-4916-abd2-fc201e478306"
              poster="assets/posters/marvel.png"
              width="100%" loop muted autoplay playsinline preload="metadata">
       </video>
@@ -75,7 +75,7 @@ A curated gallery of web games generated end-to-end by OpenGame from a single pr
   <tr>
     <td align="center" valign="top" width="50%">
       <p align="center"><b><font size="4">K.O.F: Celestial Showdown</font></b></p>
-      <video src="https://github.com/user-attachments/assets/4b36b3e7-d5da-4a73-96f3-5f6828cd4ecc"
+      <video src="https://github.com/user-attachments/assets/35fb22d9-2378-416d-8656-ef3c965a2d36"
              poster="assets/posters/kombat.png"
              width="100%" loop muted autoplay playsinline preload="metadata">
       </video>
@@ -92,7 +92,7 @@ A curated gallery of web games generated end-to-end by OpenGame from a single pr
     </td>
     <td align="center" valign="top" width="50%">
       <p align="center"><b><font size="4">Hajimi Defense: The Tuna Crisis</font></b></p>
-      <video src="https://github.com/user-attachments/assets/39776d1e-7168-4ff0-ad86-be4f71d52dec"
+      <video src="https://github.com/user-attachments/assets/06287b6f-4da0-49a5-8cf7-ef5de4bc45e3"
              poster="assets/posters/hajimi.png"
              width="100%" loop muted autoplay playsinline preload="metadata">
       </video>
@@ -111,7 +111,7 @@ A curated gallery of web games generated end-to-end by OpenGame from a single pr
   <tr>
     <td align="center" valign="top" width="50%">
       <p align="center"><b><font size="4">StarWars: Mandalorian Protocol</font></b></p>
-      <video src="https://github.com/user-attachments/assets/750bbdfd-718c-49e7-8563-11e147f5cb94"
+      <video src="https://github.com/user-attachments/assets/3dd63ca5-447c-45fc-b06b-a6dbec0a6b16"
              poster="assets/posters/starWars.png"
              width="100%" loop muted autoplay playsinline preload="metadata">
       </video>
@@ -128,7 +128,7 @@ A curated gallery of web games generated end-to-end by OpenGame from a single pr
     </td>
     <td align="center" valign="top" width="50%">
       <p align="center"><b><font size="4">Squid Game: Red Light, Green Light</font></b></p>
-      <video src="https://github.com/user-attachments/assets/2dc20fa2-7737-4d28-b5ce-2c4efafe5ffe"
+      <video src="https://github.com/user-attachments/assets/a9f51ac6-56b2-4bab-95dd-27e39ca612f5"
              poster="assets/posters/squidGame.png"
              width="100%" loop muted autoplay playsinline preload="metadata">
       </video>
