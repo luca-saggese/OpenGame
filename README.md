@@ -51,7 +51,7 @@ A curated gallery of web games generated end-to-end by OpenGame from a single pr
       <p align="center">
         <a href="https://www.opengame-project-page.com/#demo"><b>▶&nbsp;&nbsp;Live Demo</b></a>
         &nbsp;&nbsp;·&nbsp;&nbsp;
-        <a href="https://github.com/leigest519/OpenGame/raw/demo/assets/downloads/demo_platformer_marvel.zip"><b>↓&nbsp;&nbsp;Source</b></a>
+        <a href="https://github.com/leigest519/OpenGame/raw/main/assets/downloads/demo_platformer_marvel.zip"><b>↓&nbsp;&nbsp;Source</b></a>
       </p>
       <br/>
     </td>
@@ -68,7 +68,7 @@ A curated gallery of web games generated end-to-end by OpenGame from a single pr
       <p align="center">
         <a href="https://www.opengame-project-page.com/#demo"><b>▶&nbsp;&nbsp;Live Demo</b></a>
         &nbsp;&nbsp;·&nbsp;&nbsp;
-        <a href="https://github.com/leigest519/OpenGame/raw/demo/assets/downloads/demo_uiHeavy_harryPotter.zip"><b>↓&nbsp;&nbsp;Source</b></a>
+        <a href="https://github.com/leigest519/OpenGame/raw/main/assets/downloads/demo_uiHeavy_harryPotter.zip"><b>↓&nbsp;&nbsp;Source</b></a>
       </p>
       <br/>
     </td>
@@ -87,7 +87,7 @@ A curated gallery of web games generated end-to-end by OpenGame from a single pr
       <p align="center">
         <a href="https://www.opengame-project-page.com/#demo"><b>▶&nbsp;&nbsp;Live Demo</b></a>
         &nbsp;&nbsp;·&nbsp;&nbsp;
-        <a href="https://github.com/leigest519/OpenGame/raw/demo/assets/downloads/demo_uiHeavy_kombat.zip"><b>↓&nbsp;&nbsp;Source</b></a>
+        <a href="https://github.com/leigest519/OpenGame/raw/main/assets/downloads/demo_uiHeavy_kombat.zip"><b>↓&nbsp;&nbsp;Source</b></a>
       </p>
       <br/>
     </td>
@@ -104,7 +104,7 @@ A curated gallery of web games generated end-to-end by OpenGame from a single pr
       <p align="center">
         <a href="https://www.opengame-project-page.com/#demo"><b>▶&nbsp;&nbsp;Live Demo</b></a>
         &nbsp;&nbsp;·&nbsp;&nbsp;
-        <a href="https://github.com/leigest519/OpenGame/raw/demo/assets/downloads/demo_towerDefense_hajimi.zip"><b>↓&nbsp;&nbsp;Source</b></a>
+        <a href="https://github.com/leigest519/OpenGame/raw/main/assets/downloads/demo_towerDefense_hajimi.zip"><b>↓&nbsp;&nbsp;Source</b></a>
       </p>
       <br/>
     </td>
@@ -123,7 +123,7 @@ A curated gallery of web games generated end-to-end by OpenGame from a single pr
       <p align="center">
         <a href="https://www.opengame-project-page.com/#demo"><b>▶&nbsp;&nbsp;Live Demo</b></a>
         &nbsp;&nbsp;·&nbsp;&nbsp;
-        <a href="https://github.com/leigest519/OpenGame/raw/demo/assets/downloads/demo_topDown_starWars.zip"><b>↓&nbsp;&nbsp;Source</b></a>
+        <a href="https://github.com/leigest519/OpenGame/raw/main/assets/downloads/demo_topDown_starWars.zip"><b>↓&nbsp;&nbsp;Source</b></a>
       </p>
       <br/>
     </td>
@@ -140,7 +140,7 @@ A curated gallery of web games generated end-to-end by OpenGame from a single pr
       <p align="center">
         <a href="https://www.opengame-project-page.com/#demo"><b>▶&nbsp;&nbsp;Live Demo</b></a>
         &nbsp;&nbsp;·&nbsp;&nbsp;
-        <a href="https://github.com/leigest519/OpenGame/raw/demo/assets/downloads/demo_topDown_squidGame.zip"><b>↓&nbsp;&nbsp;Source</b></a>
+        <a href="https://github.com/leigest519/OpenGame/raw/main/assets/downloads/demo_topDown_squidGame.zip"><b>↓&nbsp;&nbsp;Source</b></a>
       </p>
       <br/>
     </td>
