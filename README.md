@@ -276,5 +276,6 @@ OpenGame builds on the excellent open-source work of:
 
 - **[qwen-code](https://github.com/QwenLM/qwen-code)** — the agent runtime and CLI scaffolding that OpenGame extends with Game Skill, GameCoder-27B integration, and OpenGame-Bench tooling.
 - **[Google Gemini CLI](https://github.com/google-gemini/gemini-cli)** — the original CLI architecture that qwen-code is itself based on.
+- **[Phaser](https://github.com/phaserjs/phaser)** — the fast, free, and open-source HTML5 game framework used for game rendering and mechanics.
 
-We thank both teams for making their work openly available.
+We thank these teams and communities for making their work openly available.
