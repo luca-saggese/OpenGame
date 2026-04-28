@@ -360,6 +360,21 @@ describe('languageCommand', () => {
       });
     });
 
+    it('should set Italian with "it-IT"', async () => {
+      if (!languageCommand.action) {
+        throw new Error('The language command must have an action.');
+      }
+
+      const result = await languageCommand.action(mockContext, 'ui it-IT');
+
+      expect(i18n.setLanguageAsync).toHaveBeenCalledWith('it');
+      expect(result).toEqual({
+        type: 'message',
+        messageType: 'info',
+        content: expect.stringContaining('UI language changed'),
+      });
+    });
+
     it('should return error for invalid language', async () => {
       if (!languageCommand.action) {
         throw new Error('The language command must have an action.');
@@ -591,6 +606,7 @@ describe('languageCommand', () => {
       expect(nestedNames).toContain('en-US');
       expect(nestedNames).toContain('ru-RU');
       expect(nestedNames).toContain('de-DE');
+      expect(nestedNames).toContain('it-IT');
     });
 
     it('should have action that sets language', async () => {
@@ -655,6 +671,9 @@ describe('languageCommand', () => {
     const deDESubcommand = uiSubcommand?.subCommands?.find(
       (c) => c.name === 'de-DE',
     );
+    const itITSubcommand = uiSubcommand?.subCommands?.find(
+      (c) => c.name === 'it-IT',
+    );
 
     it('zh-CN action should set Chinese', async () => {
       if (!zhCNSubcommand?.action) {
@@ -694,6 +713,21 @@ describe('languageCommand', () => {
       const result = await deDESubcommand.action(mockContext, '');
 
       expect(i18n.setLanguageAsync).toHaveBeenCalledWith('de');
+      expect(result).toEqual({
+        type: 'message',
+        messageType: 'info',
+        content: expect.stringContaining('UI language changed'),
+      });
+    });
+
+    it('it-IT action should set Italian', async () => {
+      if (!itITSubcommand?.action) {
+        throw new Error('it-IT subcommand must have an action.');
+      }
+
+      const result = await itITSubcommand.action(mockContext, '');
+
+      expect(i18n.setLanguageAsync).toHaveBeenCalledWith('it');
       expect(result).toEqual({
         type: 'message',
         messageType: 'info',
