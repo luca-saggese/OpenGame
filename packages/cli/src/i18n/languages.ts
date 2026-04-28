@@ -43,6 +43,11 @@ export const SUPPORTED_LANGUAGES: readonly LanguageDefinition[] = [
  * Used for LLM output language instructions.
  */
 export function getLanguageNameFromLocale(locale: SupportedLanguage): string {
+  const normalizedLocale = locale.toLowerCase();
+  if (normalizedLocale === 'it' || normalizedLocale === 'it-it') {
+    return 'Italian';
+  }
+
   const lang = SUPPORTED_LANGUAGES.find((l) => l.code === locale);
   return lang?.fullName || 'English';
 }

@@ -4,6 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import type OpenAI from 'openai';
 import {
   type GenerateContentParameters,
@@ -14,6 +17,7 @@ import type { ContentGeneratorConfig } from '../contentGenerator.js';
 import type { OpenAICompatibleProvider } from './provider/index.js';
 import { OpenAIContentConverter } from './converter.js';
 import type { ErrorHandler, RequestContext } from './errorHandler.js';
+import { retryWithBackoff } from '../../utils/retry.js';
 
 export interface PipelineConfig {
   cliConfig: Config;
@@ -44,13 +48,25 @@ export class ContentGenerationPipeline {
       request,
       userPromptId,
       false,
-      async (openaiRequest) => {
+      async (openaiRequest, context) => {
+        await this.writeDebugDump(context, 'request', {
+          type: 'openai-chat-completions-request',
+          streaming: false,
+          request: openaiRequest,
+        });
+
         const openaiResponse = (await this.client.chat.completions.create(
           openaiRequest,
           {
             signal: request.config?.abortSignal,
           },
         )) as OpenAI.Chat.ChatCompletion;
+
+        await this.writeDebugDump(context, 'response', {
+          type: 'openai-chat-completions-response',
+          streaming: false,
+          response: openaiResponse,
+        });
 
         const geminiResponse =
           this.converter.convertOpenAIResponseToGemini(openaiResponse);
@@ -69,6 +85,12 @@ export class ContentGenerationPipeline {
       userPromptId,
       true,
       async (openaiRequest, context) => {
+        await this.writeDebugDump(context, 'request', {
+          type: 'openai-chat-completions-request',
+          streaming: true,
+          request: openaiRequest,
+        });
+
         // Stage 1: Create OpenAI stream
         const stream = (await this.client.chat.completions.create(
           openaiRequest,
@@ -78,7 +100,12 @@ export class ContentGenerationPipeline {
         )) as AsyncIterable<OpenAI.Chat.ChatCompletionChunk>;
 
         // Stage 2: Process stream with conversion and logging
-        return this.processStreamWithLogging(stream, context, request);
+        return this.processStreamWithLogging(
+          stream,
+          context,
+          request,
+          openaiRequest,
+        );
       },
     );
   }
@@ -96,8 +123,10 @@ export class ContentGenerationPipeline {
     stream: AsyncIterable<OpenAI.Chat.ChatCompletionChunk>,
     context: RequestContext,
     request: GenerateContentParameters,
+    openaiRequest: OpenAI.Chat.ChatCompletionCreateParams,
   ): AsyncGenerator<GenerateContentResponse> {
     const collectedGeminiResponses: GenerateContentResponse[] = [];
+    const rawOpenAIChunks: OpenAI.Chat.ChatCompletionChunk[] = [];
 
     // Reset streaming tool calls to prevent data pollution from previous streams
     this.converter.resetStreamingToolCalls();
@@ -108,6 +137,15 @@ export class ContentGenerationPipeline {
     try {
       // Stage 2a: Convert and yield each chunk while preserving original
       for await (const chunk of stream) {
+        rawOpenAIChunks.push(chunk);
+
+        if (this.config.cliConfig.getDebugMode()) {
+          console.debug(
+            '[DEBUG] [OpenAIContentPipeline] raw chunk',
+            JSON.stringify(chunk, null, 2),
+          );
+        }
+
         const response = this.converter.convertOpenAIChunkToGemini(chunk);
 
         // Stage 2b: Filter empty responses to avoid downstream issues
@@ -146,7 +184,27 @@ export class ContentGenerationPipeline {
 
       // Stage 2e: Stream completed successfully
       context.duration = Date.now() - context.startTime;
+
+      await this.writeDebugDump(context, 'response', {
+        type: 'openai-chat-completions-stream-response',
+        streaming: true,
+        request: openaiRequest,
+        rawChunks: rawOpenAIChunks,
+        convertedResponses: collectedGeminiResponses,
+      });
     } catch (error) {
+      await this.writeDebugDump(context, 'response', {
+        type: 'openai-chat-completions-stream-response',
+        streaming: true,
+        request: openaiRequest,
+        rawChunks: rawOpenAIChunks,
+        convertedResponses: collectedGeminiResponses,
+        error:
+          error instanceof Error
+            ? { name: error.name, message: error.message, stack: error.stack }
+            : error,
+      });
+
       // Clear streaming tool calls on error to prevent data pollution
       this.converter.resetStreamingToolCalls();
 
@@ -179,6 +237,49 @@ export class ContentGenerationPipeline {
       collectedGeminiResponses.length > 0 &&
       collectedGeminiResponses[collectedGeminiResponses.length - 1]
         .candidates?.[0]?.finishReason;
+
+    if (isFinishChunk && hasPendingFinish) {
+      const lastResponse =
+        collectedGeminiResponses[collectedGeminiResponses.length - 1];
+      const mergedResponse = new GenerateContentResponse();
+
+      const previousCandidate = lastResponse.candidates?.[0];
+      const currentCandidate = response.candidates?.[0];
+      const currentParts = currentCandidate?.content?.parts ?? [];
+      const previousParts = previousCandidate?.content?.parts ?? [];
+
+      mergedResponse.candidates = [
+        {
+          ...(currentCandidate ?? previousCandidate),
+          content: {
+            role:
+              currentCandidate?.content?.role ??
+              previousCandidate?.content?.role ??
+              'model',
+            parts: currentParts.length > 0 ? currentParts : previousParts,
+          },
+          finishReason:
+            currentCandidate?.finishReason ?? previousCandidate?.finishReason,
+          index: currentCandidate?.index ?? previousCandidate?.index ?? 0,
+          safetyRatings:
+            currentCandidate?.safetyRatings ?? previousCandidate?.safetyRatings ?? [],
+        },
+      ];
+
+      mergedResponse.usageMetadata =
+        response.usageMetadata ?? lastResponse.usageMetadata;
+      mergedResponse.responseId = response.responseId ?? lastResponse.responseId;
+      mergedResponse.createTime = response.createTime ?? lastResponse.createTime;
+      mergedResponse.modelVersion =
+        response.modelVersion ?? lastResponse.modelVersion;
+      mergedResponse.promptFeedback =
+        response.promptFeedback ?? lastResponse.promptFeedback;
+
+      collectedGeminiResponses[collectedGeminiResponses.length - 1] =
+        mergedResponse;
+      setPendingFinish(mergedResponse);
+      return true;
+    }
 
     if (isFinishChunk) {
       // This is a finish reason chunk
@@ -349,7 +450,19 @@ export class ContentGenerationPipeline {
         isStreaming,
       );
 
-      const result = await executor(openaiRequest, context);
+      const maxRetries = this.contentGeneratorConfig.maxRetries ?? 2;
+      const maxAttempts = Math.max(1, maxRetries + 1);
+
+      const result = await retryWithBackoff(
+        async () => executor(openaiRequest, context),
+        {
+          maxAttempts,
+          initialDelayMs: 1000,
+          maxDelayMs: 8000,
+          shouldRetryOnError: (error: Error) =>
+            this.shouldRetryApiError(error, request),
+        },
+      );
 
       context.duration = Date.now() - context.startTime;
       return result;
@@ -387,5 +500,98 @@ export class ContentGenerationPipeline {
       duration: 0,
       isStreaming,
     };
+  }
+
+  private async writeDebugDump(
+    context: RequestContext,
+    kind: 'request' | 'response',
+    payload: unknown,
+  ): Promise<void> {
+    if (!this.config.cliConfig.getDebugMode()) {
+      return;
+    }
+
+    const dumpPath = this.getDebugDumpPath(context, kind);
+    await fs.writeFile(dumpPath, JSON.stringify(payload, null, 2), 'utf-8');
+
+    console.debug(
+      `[DEBUG] [OpenAIContentPipeline] Saved ${kind} dump to ${dumpPath}`,
+    );
+  }
+
+  private getDebugDumpPath(
+    context: RequestContext,
+    kind: 'request' | 'response',
+  ): string {
+    const safePromptId = context.userPromptId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const fileName = `openai-content-${safePromptId}-${context.startTime}-${kind}.json`;
+    return path.join(os.tmpdir(), fileName);
+  }
+
+  private shouldRetryApiError(
+    error: Error | unknown,
+    request: GenerateContentParameters,
+  ): boolean {
+    // Never retry if the caller explicitly aborted the request.
+    if (request.config?.abortSignal?.aborted) {
+      return false;
+    }
+
+    const message =
+      error instanceof Error ? error.message.toLowerCase() : String(error);
+    const status = this.getErrorStatus(error);
+
+    // OpenRouter sometimes wraps upstream transient failures as 400 with
+    // message like "Provider returned error". Treat this as retryable.
+    if (status === 400 && message.includes('provider returned error')) {
+      return true;
+    }
+
+    // Retry timeout/network-flaky errors.
+    if (
+      message.includes('timeout') ||
+      message.includes('timed out') ||
+      message.includes('connection reset') ||
+      message.includes('socket hang up') ||
+      message.includes('econnreset') ||
+      message.includes('etimedout') ||
+      message.includes('esockettimedout') ||
+      message.includes('deadline exceeded')
+    ) {
+      return true;
+    }
+
+    // Retry common transient HTTP statuses.
+    if (status === 408 || status === 409 || status === 425 || status === 429) {
+      return true;
+    }
+    if (typeof status === 'number' && status >= 500 && status < 600) {
+      return true;
+    }
+
+    return false;
+  }
+
+  private getErrorStatus(error: unknown): number | undefined {
+    if (typeof error !== 'object' || error === null) {
+      return undefined;
+    }
+
+    if ('status' in error && typeof error.status === 'number') {
+      return error.status;
+    }
+
+    if (
+      'response' in error &&
+      typeof (error as { response?: unknown }).response === 'object' &&
+      (error as { response?: unknown }).response !== null
+    ) {
+      const response = (error as { response: { status?: unknown } }).response;
+      if (typeof response.status === 'number') {
+        return response.status;
+      }
+    }
+
+    return undefined;
   }
 }

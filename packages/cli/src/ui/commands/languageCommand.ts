@@ -30,6 +30,23 @@ import { Storage } from '@opengame/opengame-core';
 
 const LLM_OUTPUT_LANGUAGE_RULE_FILENAME = 'output-language.md';
 const LLM_OUTPUT_LANGUAGE_MARKER_PREFIX = 'qwen-code:llm-output-language:';
+const LLM_OUTPUT_LANGUAGE_SETTINGS_PATH = 'general.outputLanguage';
+
+type SupportedLlmOutputLanguage = 'en' | 'it';
+
+const SUPPORTED_LLM_OUTPUT_LANGUAGES: ReadonlyArray<{
+  code: SupportedLlmOutputLanguage;
+  names: string[];
+}> = [
+  {
+    code: 'en',
+    names: ['en', 'en-us', 'english'],
+  },
+  {
+    code: 'it',
+    names: ['it', 'it-it', 'italian', 'italiano'],
+  },
+];
 
 function parseUiLanguageArg(input: string): SupportedLanguage | null {
   const lowered = input.trim().toLowerCase();
@@ -60,16 +77,44 @@ function sanitizeLanguageForMarker(language: string): string {
     .replace(/--/g, '');
 }
 
+function resolveLlmOutputLanguageName(
+  language: SupportedLlmOutputLanguage | string,
+): string {
+  if (language === 'it') {
+    return 'Italian';
+  }
+  if (language === 'en') {
+    return 'English';
+  }
+  return language;
+}
+
+function parseLlmOutputLanguageArg(
+  input: string,
+): SupportedLlmOutputLanguage | null {
+  const lowered = input.trim().toLowerCase();
+  if (!lowered) {
+    return null;
+  }
+
+  const match = SUPPORTED_LLM_OUTPUT_LANGUAGES.find((option) =>
+    option.names.includes(lowered),
+  );
+
+  return match?.code ?? null;
+}
+
 /**
  * Generates the LLM output language rule template based on the language name.
  */
 function generateLlmOutputLanguageRule(language: string): string {
-  const markerLanguage = sanitizeLanguageForMarker(language);
-  return `# Output language preference: ${language}
+  const resolvedLanguage = resolveLlmOutputLanguageName(language);
+  const markerLanguage = sanitizeLanguageForMarker(resolvedLanguage);
+  return `# Output language preference: ${resolvedLanguage}
 <!-- ${LLM_OUTPUT_LANGUAGE_MARKER_PREFIX} ${markerLanguage} -->
 
 ## Goal
-Prefer responding in **${language}** for normal assistant messages and explanations.
+Prefer responding in **${resolvedLanguage}** for normal assistant messages and explanations.
 
 ## Keep technical artifacts unchanged
 Do **not** translate or rewrite:
@@ -80,7 +125,7 @@ Do **not** translate or rewrite:
 If higher-priority instructions (system/developer) require a different behavior, follow them.
 
 ## Tool / system outputs
-Raw tool/system outputs may contain fixed-format English. Preserve them verbatim, and if needed, add a short **${language}** explanation below.
+Raw tool/system outputs may contain fixed-format English. Preserve them verbatim, and if needed, add a short **${resolvedLanguage}** explanation below.
 `;
 }
 
@@ -145,8 +190,18 @@ function extractLlmOutputLanguageFromRuleFileContent(
  * Initializes the LLM output language rule file on first startup.
  * If the file already exists, it is not overwritten (respects user preference).
  */
-export function initializeLlmOutputLanguage(): void {
+export function initializeLlmOutputLanguage(
+  preferredLanguage?: SupportedLlmOutputLanguage | 'auto',
+): void {
   const filePath = getLlmOutputLanguageRulePath();
+
+  if (preferredLanguage && preferredLanguage !== 'auto') {
+    const content = generateLlmOutputLanguageRule(preferredLanguage);
+    const dir = path.dirname(filePath);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(filePath, content, 'utf-8');
+    return;
+  }
 
   // Skip if file already exists (user preference)
   if (fs.existsSync(filePath)) {
@@ -226,14 +281,36 @@ async function setUiLanguage(
   };
 }
 
+function persistConfiguredLlmOutputLanguage(
+  context: CommandContext,
+  language: SupportedLlmOutputLanguage | null,
+): void {
+  const settings = context.services.settings;
+  if (!settings || typeof settings.setValue !== 'function') {
+    return;
+  }
+
+  try {
+    settings.setValue(
+      SettingScope.User,
+      LLM_OUTPUT_LANGUAGE_SETTINGS_PATH,
+      language ?? 'auto',
+    );
+  } catch (error) {
+    console.warn('Failed to save LLM output language setting:', error);
+  }
+}
+
 /**
  * Generates the LLM output language rule file.
  */
 function generateLlmOutputLanguageRuleFile(
+  context: CommandContext,
   language: string,
 ): Promise<MessageActionReturn> {
   try {
     const filePath = getLlmOutputLanguageRulePath();
+    const configuredLanguage = parseLlmOutputLanguageArg(language);
     // Normalize locale codes (e.g., "ru" -> "Russian") to full language names
     const normalizedLanguage = normalizeLanguageName(language);
     const content = generateLlmOutputLanguageRule(normalizedLanguage);
@@ -244,6 +321,7 @@ function generateLlmOutputLanguageRuleFile(
 
     // Write file (overwrite if exists)
     fs.writeFileSync(filePath, content, 'utf-8');
+    persistConfiguredLlmOutputLanguage(context, configuredLanguage);
 
     return Promise.resolve({
       type: 'message',
@@ -424,7 +502,7 @@ export const languageCommand: SlashCommand = {
           };
         }
 
-        return generateLlmOutputLanguageRuleFile(trimmedArgs);
+        return generateLlmOutputLanguageRuleFile(context, trimmedArgs);
       },
     },
   ],

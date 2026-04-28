@@ -18,6 +18,7 @@ vi.mock('../../i18n/index.js', () => ({
     const map: Record<string, string> = {
       zh: 'Chinese',
       en: 'English',
+      it: 'Italian',
       ru: 'Russian',
       de: 'German',
     };
@@ -474,6 +475,39 @@ describe('languageCommand', () => {
       );
     });
 
+    it('should normalize locale code "it" to "Italian"', async () => {
+      if (!languageCommand.action) {
+        throw new Error('The language command must have an action.');
+      }
+
+      await languageCommand.action(mockContext, 'output it');
+
+      expect(fs.writeFileSync).toHaveBeenCalledWith(
+        expect.stringContaining('output-language.md'),
+        expect.stringContaining('Italian'),
+        'utf-8',
+      );
+      expect(mockContext.services.settings.setValue).toHaveBeenCalledWith(
+        expect.anything(),
+        'general.outputLanguage',
+        'it',
+      );
+    });
+
+    it('should reset persisted setting to auto for unsupported freeform languages', async () => {
+      if (!languageCommand.action) {
+        throw new Error('The language command must have an action.');
+      }
+
+      await languageCommand.action(mockContext, 'output Japanese');
+
+      expect(mockContext.services.settings.setValue).toHaveBeenCalledWith(
+        expect.anything(),
+        'general.outputLanguage',
+        'auto',
+      );
+    });
+
     it('should handle file write errors gracefully', async () => {
       vi.mocked(fs.writeFileSync).mockImplementation(() => {
         throw new Error('Permission denied');
@@ -747,6 +781,29 @@ describe('languageCommand', () => {
       expect(fs.writeFileSync).toHaveBeenCalledWith(
         expect.stringContaining('output-language.md'),
         expect.stringContaining('German'),
+        'utf-8',
+      );
+    });
+
+    it('should detect Italian locale and create Italian rule file', () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      vi.mocked(i18n.detectSystemLanguage).mockReturnValue('it');
+
+      initializeLlmOutputLanguage();
+
+      expect(fs.writeFileSync).toHaveBeenCalledWith(
+        expect.stringContaining('output-language.md'),
+        expect.stringContaining('Italian'),
+        'utf-8',
+      );
+    });
+
+    it('should force configured English output language', () => {
+      initializeLlmOutputLanguage('en');
+
+      expect(fs.writeFileSync).toHaveBeenCalledWith(
+        expect.stringContaining('output-language.md'),
+        expect.stringContaining('English'),
         'utf-8',
       );
     });

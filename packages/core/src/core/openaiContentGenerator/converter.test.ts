@@ -180,6 +180,38 @@ describe('OpenAIContentConverter', () => {
       );
     });
 
+    it('should convert non-streaming reasoning to a thought part', () => {
+      const response = converter.convertOpenAIResponseToGemini({
+        object: 'chat.completion',
+        id: 'chatcmpl-2',
+        created: 123,
+        model: 'gpt-test',
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: 'final answer',
+              reasoning: 'hidden chain-of-thought',
+            },
+            finish_reason: 'stop',
+            logprobs: null,
+          },
+        ],
+      } as unknown as OpenAI.Chat.ChatCompletion);
+
+      const parts = response.candidates?.[0]?.content?.parts;
+      expect(parts?.[0]).toEqual(
+        expect.objectContaining({
+          thought: true,
+          text: 'hidden chain-of-thought',
+        }),
+      );
+      expect(parts?.[1]).toEqual(
+        expect.objectContaining({ text: 'final answer' }),
+      );
+    });
+
     it('should convert streaming reasoning_content delta to a thought part', () => {
       const chunk = converter.convertOpenAIChunkToGemini({
         object: 'chat.completion.chunk',
@@ -206,6 +238,59 @@ describe('OpenAIContentConverter', () => {
       expect(parts?.[1]).toEqual(
         expect.objectContaining({ text: 'visible text' }),
       );
+    });
+
+    it('should convert streaming reasoning delta to a thought part', () => {
+      const chunk = converter.convertOpenAIChunkToGemini({
+        object: 'chat.completion.chunk',
+        id: 'chunk-2',
+        created: 456,
+        choices: [
+          {
+            index: 0,
+            delta: {
+              content: '',
+              reasoning: 'thinking token',
+            },
+            finish_reason: null,
+            logprobs: null,
+          },
+        ],
+        model: 'gpt-test',
+      } as unknown as OpenAI.Chat.ChatCompletionChunk);
+
+      const parts = chunk.candidates?.[0]?.content?.parts;
+      expect(parts).toEqual([
+        expect.objectContaining({ thought: true, text: 'thinking token' }),
+      ]);
+    });
+
+    it('should fall back to reasoning_details when reasoning text is not present', () => {
+      const chunk = converter.convertOpenAIChunkToGemini({
+        object: 'chat.completion.chunk',
+        id: 'chunk-3',
+        created: 456,
+        choices: [
+          {
+            index: 0,
+            delta: {
+              content: '',
+              reasoning_details: [
+                { type: 'reasoning.text', text: 'thinking' },
+                { type: 'reasoning.text', text: '...' },
+              ],
+            },
+            finish_reason: null,
+            logprobs: null,
+          },
+        ],
+        model: 'gpt-test',
+      } as unknown as OpenAI.Chat.ChatCompletionChunk);
+
+      const parts = chunk.candidates?.[0]?.content?.parts;
+      expect(parts).toEqual([
+        expect.objectContaining({ thought: true, text: 'thinking...' }),
+      ]);
     });
   });
 

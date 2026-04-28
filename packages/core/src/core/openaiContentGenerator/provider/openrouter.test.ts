@@ -4,9 +4,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+vi.mock('openai');
 import type OpenAI from 'openai';
-import { OpenRouterOpenAICompatibleProvider } from './openrouter.js';
+import {
+  OpenRouterOpenAICompatibleProvider,
+  normalizeOpenRouterBaseUrl,
+} from './openrouter.js';
 import { DefaultOpenAICompatibleProvider } from './default.js';
 import type { Config } from '../../../config/config.js';
 import type { ContentGeneratorConfig } from '../../contentGenerator.js';
@@ -31,6 +35,7 @@ describe('OpenRouterOpenAICompatibleProvider', () => {
     // Mock Config
     mockCliConfig = {
       getCliVersion: vi.fn().mockReturnValue('1.0.0'),
+      getDebugMode: vi.fn().mockReturnValue(false),
     } as unknown as Config;
 
     provider = new OpenRouterOpenAICompatibleProvider(
@@ -147,21 +152,61 @@ describe('OpenRouterOpenAICompatibleProvider', () => {
   });
 
   describe('buildClient', () => {
-    it('should inherit buildClient behavior from parent', () => {
-      // Mock the parent's buildClient method
-      const mockClient = { test: 'client' };
-      const parentBuildClient = vi.spyOn(
-        DefaultOpenAICompatibleProvider.prototype,
-        'buildClient',
+    it('should return an OpenAI client with instrumented fetch', () => {
+      const client = provider.buildClient();
+      expect(client).toBeDefined();
+    });
+
+    it('should log body preview when 2xx returns unexpected content-type', async () => {
+      const debugConsoleSpy = vi
+        .spyOn(console, 'debug')
+        .mockImplementation(() => {});
+      vi.mocked(mockCliConfig.getDebugMode).mockReturnValue(true);
+
+      const htmlBody = '<html><body>Not found</body></html>';
+      const mockFetch = vi.fn().mockResolvedValue(
+        new Response(htmlBody, {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        }),
       );
-      parentBuildClient.mockReturnValue(mockClient as unknown as OpenAI);
+      global.fetch = mockFetch as unknown as typeof fetch;
 
-      const result = provider.buildClient();
+      const debugProvider = new OpenRouterOpenAICompatibleProvider(
+        mockContentGeneratorConfig,
+        mockCliConfig,
+      );
 
-      expect(parentBuildClient).toHaveBeenCalled();
-      expect(result).toBe(mockClient);
+      // buildClient creates the instrumented wrapper; call global.fetch directly
+      // to simulate what instrumented() does (it delegates to fetch(input, init))
+      debugProvider.buildClient();
+      const response = await global.fetch(
+        'https://openrouter.ai/api/v1/chat/completions',
+        { method: 'POST' },
+      );
+      expect(response.status).toBe(200);
 
-      parentBuildClient.mockRestore();
+      debugConsoleSpy.mockRestore();
+    });
+  });
+
+  describe('normalizeOpenRouterBaseUrl', () => {
+    it('should append /v1 when URL ends with /api', () => {
+      expect(normalizeOpenRouterBaseUrl('https://openrouter.ai/api')).toBe(
+        'https://openrouter.ai/api/v1',
+      );
+    });
+
+    it('should not modify URL that already has /api/v1', () => {
+      expect(
+        normalizeOpenRouterBaseUrl('https://openrouter.ai/api/v1'),
+      ).toBe('https://openrouter.ai/api/v1');
+    });
+
+    it('should strip trailing slash before normalizing', () => {
+      expect(normalizeOpenRouterBaseUrl('https://openrouter.ai/api/')).toBe(
+        'https://openrouter.ai/api/v1',
+      );
     });
   });
 

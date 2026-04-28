@@ -38,6 +38,8 @@ interface ExtendedCompletionUsage extends OpenAI.CompletionUsage {
 interface ExtendedChatCompletionAssistantMessageParam
   extends OpenAI.Chat.ChatCompletionAssistantMessageParam {
   reasoning_content?: string | null;
+  reasoning?: string | null;
+  reasoning_details?: ReasoningDetail[] | null;
 }
 
 type ExtendedChatCompletionMessageParam =
@@ -47,11 +49,22 @@ type ExtendedChatCompletionMessageParam =
 export interface ExtendedCompletionMessage
   extends OpenAI.Chat.ChatCompletionMessage {
   reasoning_content?: string | null;
+  reasoning?: string | null;
+  reasoning_details?: ReasoningDetail[] | null;
 }
 
 export interface ExtendedCompletionChunkDelta
   extends OpenAI.Chat.ChatCompletionChunk.Choice.Delta {
   reasoning_content?: string | null;
+  reasoning?: string | null;
+  reasoning_details?: ReasoningDetail[] | null;
+}
+
+interface ReasoningDetail {
+  type?: string;
+  text?: string | null;
+  format?: string;
+  index?: number;
 }
 
 /**
@@ -685,8 +698,9 @@ export class OpenAIContentConverter {
     const parts: Part[] = [];
 
     // Handle reasoning content (thoughts)
-    const reasoningText = (choice.message as ExtendedCompletionMessage)
-      .reasoning_content;
+    const reasoningText = this.extractReasoningText(
+      choice.message as ExtendedCompletionMessage,
+    );
     if (reasoningText) {
       parts.push({ text: reasoningText, thought: true });
     }
@@ -787,8 +801,9 @@ export class OpenAIContentConverter {
     if (choice) {
       const parts: Part[] = [];
 
-      const reasoningText = (choice.delta as ExtendedCompletionChunkDelta)
-        .reasoning_content;
+      const reasoningText = this.extractReasoningText(
+        choice.delta as ExtendedCompletionChunkDelta,
+      );
       if (reasoningText) {
         parts.push({ text: reasoningText, thought: true });
       }
@@ -952,6 +967,33 @@ export class OpenAIContentConverter {
         }
         return 'stop';
     }
+  }
+
+  private extractReasoningText(
+    source:
+      | ExtendedCompletionMessage
+      | ExtendedCompletionChunkDelta
+      | ExtendedChatCompletionAssistantMessageParam,
+  ): string | undefined {
+    if (source.reasoning_content) {
+      return source.reasoning_content;
+    }
+
+    if (source.reasoning) {
+      return source.reasoning;
+    }
+
+    if (Array.isArray(source.reasoning_details)) {
+      const text = source.reasoning_details
+        .map((detail) => detail.text ?? '')
+        .join('');
+
+      if (text) {
+        return text;
+      }
+    }
+
+    return undefined;
   }
 
   /**

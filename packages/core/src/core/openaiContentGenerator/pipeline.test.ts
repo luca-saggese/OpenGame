@@ -70,7 +70,9 @@ describe('ContentGenerationPipeline', () => {
     } as unknown as ErrorHandler;
 
     // Mock configs
-    mockCliConfig = {} as Config;
+    mockCliConfig = {
+      getDebugMode: vi.fn().mockReturnValue(false),
+    } as unknown as Config;
     mockContentGeneratorConfig = {
       model: 'test-model',
       authType: 'openai' as AuthType,
@@ -252,6 +254,88 @@ describe('ContentGenerationPipeline', () => {
         expect.any(Object),
         request,
       );
+    });
+
+    it('should retry on timeout-like errors and eventually succeed', async () => {
+      const request: GenerateContentParameters = {
+        model: 'test-model',
+        contents: [{ parts: [{ text: 'Hello' }], role: 'user' }],
+      };
+      const userPromptId = 'test-prompt-id';
+
+      const timeoutError = new Error('Streaming request timeout after 48s');
+      const mockOpenAIResponse = {
+        id: 'response-id',
+        choices: [
+          { message: { content: 'Recovered response' }, finish_reason: 'stop' },
+        ],
+      } as OpenAI.Chat.ChatCompletion;
+      const mockGeminiResponse = new GenerateContentResponse();
+
+      (mockConverter.convertGeminiRequestToOpenAI as Mock).mockReturnValue([]);
+      (mockConverter.convertOpenAIResponseToGemini as Mock).mockReturnValue(
+        mockGeminiResponse,
+      );
+      (mockClient.chat.completions.create as Mock)
+        .mockRejectedValueOnce(timeoutError)
+        .mockResolvedValueOnce(mockOpenAIResponse);
+
+      const result = await pipeline.execute(request, userPromptId);
+
+      expect(result).toBe(mockGeminiResponse);
+      expect(mockClient.chat.completions.create).toHaveBeenCalledTimes(2);
+    });
+
+    it('should retry on 400 provider returned error and eventually succeed', async () => {
+      const request: GenerateContentParameters = {
+        model: 'test-model',
+        contents: [{ parts: [{ text: 'Hello' }], role: 'user' }],
+      };
+
+      const providerError = Object.assign(
+        new Error('400 Provider returned error'),
+        { status: 400 },
+      );
+      const mockOpenAIResponse = {
+        id: 'response-id',
+        choices: [
+          { message: { content: 'Recovered response' }, finish_reason: 'stop' },
+        ],
+      } as OpenAI.Chat.ChatCompletion;
+
+      (mockConverter.convertGeminiRequestToOpenAI as Mock).mockReturnValue([]);
+      (mockConverter.convertOpenAIResponseToGemini as Mock).mockReturnValue(
+        new GenerateContentResponse(),
+      );
+      (mockClient.chat.completions.create as Mock)
+        .mockRejectedValueOnce(providerError)
+        .mockResolvedValueOnce(mockOpenAIResponse);
+
+      await pipeline.execute(request, 'test-prompt-id');
+
+      expect(mockClient.chat.completions.create).toHaveBeenCalledTimes(2);
+    });
+
+    it('should not retry non-retryable 400 errors', async () => {
+      const request: GenerateContentParameters = {
+        model: 'test-model',
+        contents: [{ parts: [{ text: 'Hello' }], role: 'user' }],
+      };
+
+      const badRequestError = Object.assign(new Error('400 Bad Request'), {
+        status: 400,
+      });
+
+      (mockConverter.convertGeminiRequestToOpenAI as Mock).mockReturnValue([]);
+      (mockClient.chat.completions.create as Mock).mockRejectedValue(
+        badRequestError,
+      );
+
+      await expect(pipeline.execute(request, 'test-prompt-id')).rejects.toThrow(
+        '400 Bad Request',
+      );
+
+      expect(mockClient.chat.completions.create).toHaveBeenCalledTimes(1);
     });
 
     it('should pass abort signal to OpenAI client when provided', async () => {
@@ -1227,6 +1311,114 @@ describe('ContentGenerationPipeline', () => {
       // Should only yield the final response (empty ones are filtered)
       expect(responses).toHaveLength(1);
       expect(responses[0]).toBe(finalGeminiResponse);
+    });
+
+    it('should preserve tool calls when a second finish chunk only carries usage metadata', async () => {
+      const finishChunkWithToolCall = new GenerateContentResponse();
+      finishChunkWithToolCall.candidates = [
+        {
+          content: {
+            parts: [
+              {
+                functionCall: {
+                  id: 'call_123',
+                  name: 'classify_game_type',
+                  args: { game_description: '3d snake' },
+                },
+              },
+            ],
+            role: 'model',
+          },
+          finishReason: FinishReason.STOP,
+          index: 0,
+          safetyRatings: [],
+        },
+      ];
+      finishChunkWithToolCall.responseId = 'chunk-1';
+
+      const finishChunkWithUsage = new GenerateContentResponse();
+      finishChunkWithUsage.candidates = [
+        {
+          content: { parts: [], role: 'model' },
+          finishReason: FinishReason.STOP,
+          index: 0,
+          safetyRatings: [],
+        },
+      ];
+      finishChunkWithUsage.responseId = 'chunk-2';
+      finishChunkWithUsage.usageMetadata = {
+        promptTokenCount: 10,
+        candidatesTokenCount: 20,
+        totalTokenCount: 30,
+      };
+
+      (mockConverter.convertGeminiRequestToOpenAI as Mock).mockReturnValue([
+        { role: 'user', content: 'test' },
+      ]);
+      (mockConverter.convertOpenAIChunkToGemini as Mock)
+        .mockReturnValueOnce(finishChunkWithToolCall)
+        .mockReturnValueOnce(finishChunkWithUsage);
+
+      const mockStream = {
+        async *[Symbol.asyncIterator]() {
+          yield {
+            id: 'chunk-1',
+            object: 'chat.completion.chunk',
+            created: Date.now(),
+            model: 'test-model',
+            choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+          };
+          yield {
+            id: 'chunk-2',
+            object: 'chat.completion.chunk',
+            created: Date.now(),
+            model: 'test-model',
+            choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+            usage: {
+              prompt_tokens: 10,
+              completion_tokens: 20,
+              total_tokens: 30,
+            },
+          };
+        },
+      };
+
+      (mockClient.chat.completions.create as Mock).mockResolvedValue(
+        mockStream,
+      );
+
+      const request: GenerateContentParameters = {
+        model: 'test-model',
+        contents: [{ role: 'user', parts: [{ text: 'test' }] }],
+      };
+
+      const responses: GenerateContentResponse[] = [];
+      const resultGenerator = await pipeline.executeStream(
+        request,
+        'test-prompt-id',
+      );
+      for await (const response of resultGenerator) {
+        responses.push(response);
+      }
+
+      expect(responses).toHaveLength(1);
+      expect(
+        responses[0].candidates?.[0]?.content?.parts?.[0],
+      ).toEqual(
+        expect.objectContaining({
+          functionCall: expect.objectContaining({
+            name: 'classify_game_type',
+            args: { game_description: '3d snake' },
+          }),
+        }),
+      );
+      expect(responses[0].usageMetadata).toEqual(
+        expect.objectContaining({
+          promptTokenCount: 10,
+          candidatesTokenCount: 20,
+          totalTokenCount: 30,
+        }),
+      );
     });
   });
 });

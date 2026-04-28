@@ -205,6 +205,21 @@ const SETTINGS_SCHEMA = {
           { value: 'de', label: 'Deutsch (German)' },
         ],
       },
+      outputLanguage: {
+        type: 'enum',
+        label: 'Generated Text Language',
+        category: 'General',
+        requiresRestart: false,
+        default: 'auto',
+        description:
+          'Preferred language for AI-generated text. Use "auto" to detect from system settings, or force English or Italian.',
+        showInDialog: true,
+        options: [
+          { value: 'auto', label: 'Auto (detect from system)' },
+          { value: 'en', label: 'English' },
+          { value: 'it', label: 'Italiano (Italian)' },
+        ],
+      },
       terminalBell: {
         type: 'boolean',
         label: 'Terminal Bell',

@@ -15,6 +15,7 @@ import type {
   Part,
   Tool,
   GenerateContentResponseUsageMetadata,
+  FinishReason,
 } from '@google/genai';
 import { ApiError, createUserContent } from '@google/genai';
 import { retryWithBackoff } from '../utils/retry.js';
@@ -126,6 +127,28 @@ function isValidContentPart(part: Part): boolean {
     part.functionCall === undefined;
 
   return !isInvalid;
+}
+
+function getPartKind(part: Part): string {
+  if (part.functionCall) {
+    return 'functionCall';
+  }
+  if (part.functionResponse) {
+    return 'functionResponse';
+  }
+  if (part.inlineData) {
+    return 'inlineData';
+  }
+  if (part.fileData) {
+    return 'fileData';
+  }
+  if (part.text !== undefined) {
+    return part.thought ? 'thoughtText' : 'text';
+  }
+  if (part.thoughtSignature) {
+    return 'thoughtSignature';
+  }
+  return 'unknown';
 }
 
 /**
@@ -300,6 +323,13 @@ export class GeminiChat {
           } catch (error) {
             lastError = error;
             const isContentError = error instanceof InvalidStreamError;
+            const isRetryableApiError = self.isRetryableApiError(error);
+
+            const message =
+              error instanceof Error ? error.message : String(error);
+            console.error(
+              `[OpenAI stream] attempt ${attempt + 1}/${INVALID_CONTENT_RETRY_OPTIONS.maxAttempts} failed: ${message}`,
+            );
 
             if (isContentError) {
               // Check if we have more attempts left.
@@ -323,6 +353,24 @@ export class GeminiChat {
                 continue;
               }
             }
+
+            if (
+              isRetryableApiError &&
+              attempt < INVALID_CONTENT_RETRY_OPTIONS.maxAttempts - 1
+            ) {
+              const delayMs =
+                INVALID_CONTENT_RETRY_OPTIONS.initialDelayMs * (attempt + 1);
+              if (self.config.getDebugMode()) {
+                console.debug('[DEBUG] [GeminiChat] Retrying after API error', {
+                  attempt: attempt + 1,
+                  delayMs,
+                  message,
+                });
+              }
+              await new Promise((res) => setTimeout(res, delayMs));
+              continue;
+            }
+
             break;
           }
         }
@@ -384,6 +432,27 @@ export class GeminiChat {
 
     const streamResponse = await retryWithBackoff(apiCall, {
       shouldRetryOnError: (error: unknown) => {
+        const message =
+          error instanceof Error ? error.message.toLowerCase() : String(error);
+
+        // OpenRouter can surface transient upstream provider failures as HTTP 400
+        // with message like "Provider returned error".
+        if (message.includes('provider returned error')) return true;
+
+        // Retry common timeout/network transient failures.
+        if (
+          message.includes('timeout') ||
+          message.includes('timed out') ||
+          message.includes('econnreset') ||
+          message.includes('connection reset') ||
+          message.includes('socket hang up') ||
+          message.includes('etimedout') ||
+          message.includes('esockettimedout') ||
+          message.includes('deadline exceeded')
+        ) {
+          return true;
+        }
+
         if (error instanceof ApiError && error.message) {
           if (error.status === 400) return false;
           if (isSchemaDepthError(error.message)) return false;
@@ -397,6 +466,39 @@ export class GeminiChat {
     });
 
     return this.processStreamResponse(model, streamResponse);
+  }
+
+  private isRetryableApiError(error: unknown): boolean {
+    const message =
+      error instanceof Error ? error.message.toLowerCase() : String(error);
+
+    if (message.includes('provider returned error')) return true;
+
+    if (
+      message.includes('timeout') ||
+      message.includes('timed out') ||
+      message.includes('econnreset') ||
+      message.includes('connection reset') ||
+      message.includes('socket hang up') ||
+      message.includes('etimedout') ||
+      message.includes('esockettimedout') ||
+      message.includes('deadline exceeded')
+    ) {
+      return true;
+    }
+
+    if (error instanceof ApiError) {
+      // OpenRouter transient upstream errors can bubble as 400.
+      if (error.status === 400 && message.includes('provider returned error')) {
+        return true;
+      }
+
+      // For other HTTP statuses, keep behavior delegated to the inner
+      // retryWithBackoff/onPersistent429 path to avoid duplicate retries.
+      return false;
+    }
+
+    return false;
   }
 
   /**
@@ -530,10 +632,49 @@ export class GeminiChat {
 
     let hasToolCall = false;
     let hasFinishReason = false;
+    let chunkCount = 0;
+    let chunksWithCandidates = 0;
+    let chunksWithUsageMetadata = 0;
+    const finishReasons = new Set<FinishReason>();
+    let lastChunkSummary:
+      | {
+          candidateCount: number;
+          hasUsageMetadata: boolean;
+          finishReasons: FinishReason[];
+          firstCandidatePartKinds: string[];
+        }
+      | undefined;
 
     for await (const chunk of streamResponse) {
-      hasFinishReason =
-        chunk?.candidates?.some((candidate) => candidate.finishReason) ?? false;
+      chunkCount += 1;
+
+      if (this.config.getDebugMode()) {
+        console.debug(`[DEBUG] [GeminiChat] chunk #${chunkCount}`, JSON.stringify(chunk, null, 2));
+      }
+
+      const candidates = chunk?.candidates ?? [];
+      if (candidates.length > 0) {
+        chunksWithCandidates += 1;
+      }
+
+      const chunkFinishReasons = candidates
+        .map((candidate) => candidate.finishReason)
+        .filter((reason): reason is FinishReason => reason !== undefined);
+      if (chunkFinishReasons.length > 0) {
+        hasFinishReason = true;
+        for (const reason of chunkFinishReasons) {
+          finishReasons.add(reason);
+        }
+      }
+
+      lastChunkSummary = {
+        candidateCount: candidates.length,
+        hasUsageMetadata: !!chunk.usageMetadata,
+        finishReasons: chunkFinishReasons,
+        firstCandidatePartKinds:
+          candidates[0]?.content?.parts?.map(getPartKind) ?? [],
+      };
+
       if (isValidResponse(chunk)) {
         const content = chunk.candidates?.[0]?.content;
         if (content?.parts) {
@@ -548,6 +689,7 @@ export class GeminiChat {
 
       // Collect token usage for consolidated recording
       if (chunk.usageMetadata) {
+        chunksWithUsageMetadata += 1;
         usageMetadata = chunk.usageMetadata;
         if (chunk.usageMetadata.promptTokenCount !== undefined) {
           uiTelemetryService.setLastPromptTokenCount(
@@ -604,38 +746,61 @@ export class GeminiChat {
 
     // Record assistant turn with raw Content and metadata
     if (thoughtContentPart || contentText || hasToolCall || usageMetadata) {
+      const assistantMessageParts: Part[] = [
+        ...(thoughtContentPart ? [thoughtContentPart] : []),
+        ...(contentText ? [{ text: contentText }] : []),
+        ...(hasToolCall
+          ? contentParts
+              .filter((part) => part.functionCall)
+              .map((part) => ({ functionCall: part.functionCall }))
+          : []),
+      ];
       this.chatRecordingService?.recordAssistantTurn({
         model,
-        message: [
-          ...(thoughtContentPart ? [thoughtContentPart] : []),
-          ...(contentText ? [{ text: contentText }] : []),
-          ...(hasToolCall
-            ? contentParts
-                .filter((part) => part.functionCall)
-                .map((part) => ({ functionCall: part.functionCall }))
-            : []),
-        ],
+        ...(assistantMessageParts.length > 0
+          ? { message: assistantMessageParts }
+          : {}),
         tokens: usageMetadata,
       });
     }
 
     // Stream validation logic: A stream is considered successful if:
     // 1. There's a tool call (tool calls can end without explicit finish reasons), OR
-    // 2. There's a finish reason AND we have non-empty response text
+    // 2. There's a finish reason (even with empty content — some providers return STOP + no parts)
     //
-    // We throw an error only when there's no tool call AND:
-    // - No finish reason, OR
-    // - Empty response text (e.g., only thoughts with no actual content)
-    if (!hasToolCall && (!hasFinishReason || !contentText)) {
-      if (!hasFinishReason) {
-        throw new InvalidStreamError(
-          'Model stream ended without a finish reason.',
-          'NO_FINISH_REASON',
-        );
-      } else {
-        throw new InvalidStreamError(
-          'Model stream ended with empty response text.',
-          'NO_RESPONSE_TEXT',
+    // We throw only when there's no tool call AND no finish reason at all.
+    if (!hasToolCall && !hasFinishReason) {
+      if (this.config.getDebugMode()) {
+        console.debug('[DEBUG] [GeminiChat] Invalid stream diagnostics', {
+          model,
+          chunkCount,
+          chunksWithCandidates,
+          chunksWithUsageMetadata,
+          hasToolCall,
+          hasFinishReason,
+          finishReasons: Array.from(finishReasons),
+          contentTextLength: contentText.length,
+          thoughtTextLength: thoughtText.length,
+          lastChunkSummary,
+        });
+      }
+
+      throw new InvalidStreamError(
+        'Model stream ended without a finish reason.',
+        'NO_FINISH_REASON',
+      );
+    }
+
+    // When finish reason is present but content is empty, log a warning and continue.
+    if (!hasToolCall && hasFinishReason && !contentText) {
+      if (this.config.getDebugMode()) {
+        console.debug(
+          '[DEBUG] [GeminiChat] Stream ended with finish reason but empty content — treating as empty response.',
+          {
+            model,
+            finishReasons: Array.from(finishReasons),
+            chunkCount,
+          },
         );
       }
     }

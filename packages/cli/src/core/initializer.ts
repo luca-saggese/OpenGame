@@ -43,7 +43,7 @@ export async function initializeApp(
   await initializeI18n(languageSetting);
 
   // Auto-detect and set LLM output language on first use
-  initializeLlmOutputLanguage();
+  initializeLlmOutputLanguage(settings.merged.general?.outputLanguage);
 
   const authType = settings.merged.security?.auth?.selectedType;
   const authError = await performInitialAuth(config, authType);
