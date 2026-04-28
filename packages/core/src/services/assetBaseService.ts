@@ -41,6 +41,11 @@ export abstract class BaseService {
           continue;
         }
 
+        if(res.status === 404) {
+          this.logger.warn(`Resource not found (404) for ${url}`);
+          return res; // Don't retry on 404, just return the response
+        }
+
         if (!res.ok && i < maxRetries) {
           this.logger.warn(`Request failed with ${res.status}, retrying...`);
           await this.sleep(retryDelay);

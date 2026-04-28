@@ -236,6 +236,196 @@ export class DoubaoVideoService extends BaseService {
   }
 }
 
+// ============== OpenAI-Compatible Video Service (OpenRouter) ==============
+
+interface OpenRouterVideoJobResponse {
+  id?: string;
+  polling_url?: string;
+  status?: string;
+  error?: string;
+  generation_id?: string;
+  unsigned_urls?: string[];
+  usage?: {
+    cost?: number;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+export class OpenAICompatVideoService extends BaseService {
+  private config: VideoModelConfig;
+
+  constructor(config: VideoModelConfig) {
+    super();
+    this.config = config;
+  }
+
+  async generateVideo(
+    baseImageUrl: string,
+    prompt: string,
+    resolution: string = '720P',
+  ): Promise<VideoGenerationResponse> {
+    return this.generateVideoInternal(prompt, resolution, baseImageUrl);
+  }
+
+  async generateVideoFromText(
+    prompt: string,
+    resolution: string = '720P',
+  ): Promise<VideoGenerationResponse> {
+    return this.generateVideoInternal(prompt, resolution);
+  }
+
+  private normalizeResolutionForOpenRouter(resolution: string): string {
+    const normalized = resolution.toLowerCase();
+    switch (normalized) {
+      case '480p':
+      case '720p':
+      case '1080p':
+        return normalized;
+      default:
+        return '720p';
+    }
+  }
+
+  private inferAspectRatioFromResolution(_resolution: string): string {
+    // OpenGame currently targets landscape gameplay and frame extraction,
+    // so default to 16:9 for cross-provider consistency.
+    return '16:9';
+  }
+
+  private async generateVideoInternal(
+    prompt: string,
+    resolution: string,
+    baseImageUrl?: string,
+  ): Promise<VideoGenerationResponse> {
+    this.log(
+      `Generating video with OpenAI-compat (${baseImageUrl ? 'I2V' : 'T2V'}): ${prompt.substring(0, 50)}...`,
+    );
+
+    const baseUrl = this.getVideoApiBaseUrl();
+    const url = `${baseUrl}/videos`;
+
+    const payload: Record<string, unknown> = {
+      model: this.config.modelNameVideo,
+      prompt,
+      resolution: this.normalizeResolutionForOpenRouter(resolution),
+      aspect_ratio: this.inferAspectRatioFromResolution(resolution),
+    };
+
+    if (baseImageUrl) {
+      payload['frame_images'] = [
+        {
+          frame_type: 'first_frame',
+          image_url: baseImageUrl,
+        },
+      ];
+    }
+
+    const response = await this.fetchWithRetry(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.config.apiKey}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(
+        `OpenAI-compat video API failed: ${response.status} - ${errorBody}`,
+      );
+    }
+
+    const createData = (await response.json()) as OpenRouterVideoJobResponse;
+    const taskId = createData.id;
+    if (!taskId) {
+      throw new Error('OpenAI-compat video API returned no job id');
+    }
+
+    this.log(`Video job created: ${taskId}, polling for completion...`);
+
+    const result = await this.pollOpenRouterVideoTask(taskId, 600000, 10000);
+
+    const videoUrl = result.unsigned_urls?.[0];
+    if (!videoUrl) {
+      throw new Error(
+        'OpenAI-compat video job completed but no unsigned_urls were returned',
+      );
+    }
+
+    this.log(`Video generated successfully`);
+    return { videoUrl, taskId };
+  }
+
+  private async pollOpenRouterVideoTask(
+    taskId: string,
+    timeoutMs: number,
+    pollIntervalMs: number,
+  ): Promise<OpenRouterVideoJobResponse> {
+    const startTime = Date.now();
+    const baseUrl = this.getVideoApiBaseUrl();
+    const url = `${baseUrl}/videos/${taskId}`;
+
+    while (Date.now() - startTime < timeoutMs) {
+      await this.sleep(pollIntervalMs);
+
+      const res = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${this.config.apiKey}`,
+        },
+      });
+
+      if (!res.ok) {
+        continue;
+      }
+
+      const data = (await res.json()) as OpenRouterVideoJobResponse;
+      const status = (data.status || '').toLowerCase();
+
+      if (status === 'completed' || status === 'succeeded') {
+        return data;
+      }
+
+      if (
+        status === 'failed' ||
+        status === 'error' ||
+        status === 'cancelled' ||
+        status === 'canceled'
+      ) {
+        throw new Error(
+          `OpenAI-compat video task failed: ${data.error ?? 'Unknown error'}`,
+        );
+      }
+    }
+
+    throw new Error(`OpenAI-compat video task timed out after ${timeoutMs}ms`);
+  }
+
+  private getVideoApiBaseUrl(): string {
+    const trimmed = this.config.baseUrl.replace(/\/+$/g, '');
+
+    try {
+      const parsed = new URL(trimmed);
+      const host = parsed.hostname.toLowerCase();
+      const path = parsed.pathname.replace(/\/+$/g, '');
+
+      if (host === 'openrouter.ai' || host.endsWith('.openrouter.ai')) {
+        if (path === '' || path === '/') {
+          return `${parsed.origin}/api/v1`;
+        }
+        if (path === '/api') {
+          return `${parsed.origin}/api/v1`;
+        }
+      }
+    } catch {
+      // Ignore URL parsing failures and fall back to the configured base URL.
+    }
+
+    return trimmed;
+  }
+}
+
 interface DoubaoVideoTaskResult {
   status?: string;
   video_url?: string;
@@ -493,14 +683,7 @@ export function createVideoService(config: VideoModelConfig): IVideoService {
     case 'doubao':
       return new DoubaoVideoService(config);
     case 'openai-compat':
-      // OpenAI-compatible APIs do not have a stable text-to-video / image-to-video
-      // surface today (Sora and Veo are not part of the public OpenAI shape).
-      // Surface this as an actionable error rather than producing 404s.
-      throw new Error(
-        'OpenGame video generation does not support the "openai-compat" provider yet. ' +
-          'Set OPENGAME_VIDEO_PROVIDER to "tongyi" or "doubao", or skip animation/audio-from-video ' +
-          'generation.',
-      );
+      return new OpenAICompatVideoService(config);
     case 'tongyi':
     default:
       return new TongyiVideoService(config);
