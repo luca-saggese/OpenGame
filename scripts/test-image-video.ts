@@ -12,6 +12,9 @@
  *   OPENGAME_TEST_OUTPUT_DIR            (default: ./tmp/asset-smoke)
  *   OPENGAME_TEST_SKIP_VIDEO            (1|true to skip)
  *   OPENGAME_TEST_VIDEO_MODE            (i2v|t2v, default: i2v)
+ *   OPENGAME_OPENROUTER_I2V_FALLBACK_TO_T2V
+ *                                      (default false; set true to allow
+ *                                       automatic fallback when I2V route is unavailable)
  *
  * CLI flags:
  *   --image-prompt "..."
@@ -87,7 +90,28 @@ function safeFileName(prefix: string, ext: string): string {
   return `${prefix}-${now}.${ext}`;
 }
 
-async function downloadToFile(url: string, filePath: string): Promise<void> {
+interface DownloadOptions {
+  bearerToken?: string;
+}
+
+function shouldAttachAuthHeader(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    return (
+      (host === 'openrouter.ai' || host.endsWith('.openrouter.ai')) &&
+      parsed.pathname.startsWith('/api/v1/videos/')
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function downloadToFile(
+  url: string,
+  filePath: string,
+  options: DownloadOptions = {},
+): Promise<void> {
   if (url.startsWith('data:image/')) {
     const commaIdx = url.indexOf(',');
     if (commaIdx < 0) {
@@ -109,7 +133,14 @@ async function downloadToFile(url: string, filePath: string): Promise<void> {
     }
   }
 
-  const response = await fetch(url);
+  const headers: Record<string, string> = {};
+  if (options.bearerToken && shouldAttachAuthHeader(url)) {
+    headers['Authorization'] = `Bearer ${options.bearerToken}`;
+  }
+
+  const response = await fetch(url, {
+    headers,
+  });
   if (!response.ok) {
     throw new Error(`Download failed (${response.status}) for ${url}`);
   }
@@ -134,9 +165,7 @@ async function main(): Promise<void> {
     cli.imageSize ?? process.env.OPENGAME_TEST_IMAGE_SIZE ?? '1024*1024';
 
   const videoResolution =
-    cli.videoResolution ??
-    process.env.OPENGAME_TEST_VIDEO_RESOLUTION ??
-    '720P';
+    cli.videoResolution ?? process.env.OPENGAME_TEST_VIDEO_RESOLUTION ?? '720P';
 
   const outputDir = path.resolve(
     cli.outputDir ??
@@ -148,7 +177,8 @@ async function main(): Promise<void> {
     cli.videoMode ??
     ((process.env.OPENGAME_TEST_VIDEO_MODE as VideoMode) || 'i2v');
 
-  const skipVideo = cli.skipVideo || envTrue(process.env.OPENGAME_TEST_SKIP_VIDEO);
+  const skipVideo =
+    cli.skipVideo || envTrue(process.env.OPENGAME_TEST_SKIP_VIDEO);
 
   await fs.mkdir(outputDir, { recursive: true });
 
@@ -201,10 +231,16 @@ async function main(): Promise<void> {
   const videoResult =
     videoMode === 't2v'
       ? await videoService.generateVideoFromText(videoPrompt, videoResolution)
-      : await videoService.generateVideo(imageUrl, videoPrompt, videoResolution);
+      : await videoService.generateVideo(
+          imageUrl,
+          videoPrompt,
+          videoResolution,
+        );
 
   const videoPath = path.join(outputDir, safeFileName('smoke-video', 'mp4'));
-  await downloadToFile(videoResult.videoUrl, videoPath);
+  await downloadToFile(videoResult.videoUrl, videoPath, {
+    bearerToken: videoProvider.apiKey,
+  });
   console.log(`Video task id: ${videoResult.taskId}`);
   console.log(`Video URL: ${videoResult.videoUrl}`);
   console.log(`Video saved: ${videoPath}`);
@@ -217,7 +253,8 @@ main().catch((error: unknown) => {
     process.exit(2);
   }
 
-  const message = error instanceof Error ? error.stack || error.message : String(error);
+  const message =
+    error instanceof Error ? error.stack || error.message : String(error);
   console.error('\n[SMOKE TEST FAILED]');
   console.error(message);
   process.exit(1);

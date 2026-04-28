@@ -293,6 +293,26 @@ export class OpenAICompatVideoService extends BaseService {
     return '16:9';
   }
 
+  private getVideoDurationSeconds(): number {
+    const raw = process.env.OPENGAME_VIDEO_DURATION;
+    if (!raw) return 10;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+      return 10;
+    }
+    return Math.floor(parsed);
+  }
+
+  private allowI2VFallbackToT2V(): boolean {
+    const raw = process.env.OPENGAME_OPENROUTER_I2V_FALLBACK_TO_T2V;
+    if (!raw) {
+      // Default strict for explicit I2V requests.
+      return false;
+    }
+    const normalized = raw.trim().toLowerCase();
+    return normalized === '1' || normalized === 'true' || normalized === 'yes';
+  }
+
   private async generateVideoInternal(
     prompt: string,
     resolution: string,
@@ -310,18 +330,32 @@ export class OpenAICompatVideoService extends BaseService {
       prompt,
       resolution: this.normalizeResolutionForOpenRouter(resolution),
       aspect_ratio: this.inferAspectRatioFromResolution(resolution),
+      duration: this.getVideoDurationSeconds(),
     };
 
     if (baseImageUrl) {
       payload['frame_images'] = [
         {
+          type: 'image_url',
           frame_type: 'first_frame',
-          image_url: baseImageUrl,
+          image_url: {
+            url: baseImageUrl,
+          },
+        },
+      ];
+
+      // Additional hint for providers/models that support reference images.
+      payload['input_references'] = [
+        {
+          type: 'image_url',
+          image_url: {
+            url: baseImageUrl,
+          },
         },
       ];
     }
 
-    const response = await this.fetchWithRetry(url, {
+    let response = await this.fetchWithRetry(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -332,9 +366,56 @@ export class OpenAICompatVideoService extends BaseService {
 
     if (!response.ok) {
       const errorBody = await response.text();
-      throw new Error(
-        `OpenAI-compat video API failed: ${response.status} - ${errorBody}`,
-      );
+
+      // Some OpenRouter model routes support T2V only (no frame_images/I2V).
+      // Only fallback when explicitly enabled.
+      if (
+        baseImageUrl &&
+        this.allowI2VFallbackToT2V() &&
+        response.status === 404 &&
+        (errorBody.includes('No endpoints found') ||
+          errorBody.includes('provider routing'))
+      ) {
+        this.log(
+          'OpenRouter route rejected I2V payload; retrying as text-to-video without frame_images.',
+          'warn',
+        );
+
+        const fallbackPayload = { ...payload };
+        delete fallbackPayload['frame_images'];
+        delete fallbackPayload['input_references'];
+
+        response = await this.fetchWithRetry(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.config.apiKey}`,
+          },
+          body: JSON.stringify(fallbackPayload),
+        });
+
+        if (!response.ok) {
+          const fallbackErrorBody = await response.text();
+          throw new Error(
+            `OpenAI-compat video API failed: ${response.status} - ${fallbackErrorBody}`,
+          );
+        }
+      } else if (
+        baseImageUrl &&
+        response.status === 404 &&
+        (errorBody.includes('No endpoints found') ||
+          errorBody.includes('provider routing'))
+      ) {
+        throw new Error(
+          'OpenAI-compat video API failed in strict I2V mode: route/model does not support image-conditioned video. ' +
+            'Choose an I2V-capable video model/provider, or set OPENGAME_OPENROUTER_I2V_FALLBACK_TO_T2V=true to allow fallback. ' +
+            `Original error: ${response.status} - ${errorBody}`,
+        );
+      } else {
+        throw new Error(
+          `OpenAI-compat video API failed: ${response.status} - ${errorBody}`,
+        );
+      }
     }
 
     const createData = (await response.json()) as OpenRouterVideoJobResponse;
