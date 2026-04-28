@@ -264,6 +264,14 @@ async function setUiLanguage(
   if (settings && typeof settings.setValue === 'function') {
     try {
       settings.setValue(SettingScope.User, 'general.language', lang);
+
+      // If workspace has an explicit language override, keep it in sync.
+      // Otherwise the merged setting may remain unchanged after restart.
+      const workspaceLanguage = settings.forScope?.(SettingScope.Workspace)
+        ?.settings?.general?.language;
+      if (workspaceLanguage !== undefined) {
+        settings.setValue(SettingScope.Workspace, 'general.language', lang);
+      }
     } catch (error) {
       console.warn('Failed to save language setting:', error);
     }

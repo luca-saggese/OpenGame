@@ -403,6 +403,33 @@ describe('languageCommand', () => {
         'en',
       );
     });
+
+    it('should persist setting to workspace when workspace override exists', async () => {
+      if (!languageCommand.action) {
+        throw new Error('The language command must have an action.');
+      }
+
+      mockContext.services.settings = {
+        merged: {},
+        setValue: vi.fn(),
+        forScope: vi.fn().mockReturnValue({
+          settings: {
+            general: {
+              language: 'en',
+            },
+          },
+        }),
+      } as unknown as CommandContext['services']['settings'];
+
+      await languageCommand.action(mockContext, 'ui it-IT');
+
+      expect(mockContext.services.settings.setValue).toHaveBeenCalledWith(
+        expect.anything(),
+        'general.language',
+        'it',
+      );
+      expect(mockContext.services.settings.setValue).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('/language output subcommand', () => {
