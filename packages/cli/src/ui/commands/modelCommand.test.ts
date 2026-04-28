@@ -17,7 +17,7 @@ import * as availableModelsModule from '../models/availableModels.js';
 
 // Mock the availableModels module
 vi.mock('../models/availableModels.js', () => ({
-  getAvailableModelsForAuthType: vi.fn(),
+  getAvailableModelsForAuthTypeAsync: vi.fn(),
 }));
 
 // Helper function to create a mock config
@@ -31,8 +31,8 @@ function createMockConfig(
 
 describe('modelCommand', () => {
   let mockContext: CommandContext;
-  const mockGetAvailableModelsForAuthType = vi.mocked(
-    availableModelsModule.getAvailableModelsForAuthType,
+  const mockGetAvailableModelsForAuthTypeAsync = vi.mocked(
+    availableModelsModule.getAvailableModelsForAuthTypeAsync,
   );
 
   beforeEach(() => {
@@ -87,7 +87,7 @@ describe('modelCommand', () => {
   });
 
   it('should return dialog action for QWEN_OAUTH auth type', async () => {
-    mockGetAvailableModelsForAuthType.mockReturnValue([
+    mockGetAvailableModelsForAuthTypeAsync.mockResolvedValue([
       { id: 'qwen3-coder-plus', label: 'qwen3-coder-plus' },
     ]);
 
@@ -106,7 +106,7 @@ describe('modelCommand', () => {
   });
 
   it('should return dialog action for USE_OPENAI auth type when model is available', async () => {
-    mockGetAvailableModelsForAuthType.mockReturnValue([
+    mockGetAvailableModelsForAuthTypeAsync.mockResolvedValue([
       { id: 'gpt-4', label: 'gpt-4' },
     ]);
 
@@ -125,7 +125,7 @@ describe('modelCommand', () => {
   });
 
   it('should return error for USE_OPENAI auth type when no model is available', async () => {
-    mockGetAvailableModelsForAuthType.mockReturnValue([]);
+    mockGetAvailableModelsForAuthTypeAsync.mockResolvedValue([]);
 
     const mockConfig = createMockConfig({
       model: 'test-model',
@@ -144,7 +144,7 @@ describe('modelCommand', () => {
   });
 
   it('should return error for unsupported auth types', async () => {
-    mockGetAvailableModelsForAuthType.mockReturnValue([]);
+    mockGetAvailableModelsForAuthTypeAsync.mockResolvedValue([]);
 
     const mockConfig = createMockConfig({
       model: 'test-model',

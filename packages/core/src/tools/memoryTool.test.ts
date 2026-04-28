@@ -269,6 +269,34 @@ describe('MemoryTool', () => {
       expect(result.returnDisplay).toBe(successMessage);
     });
 
+    it('should use config project root for project scope when provided', async () => {
+      const projectRoot = '/mock/project-root';
+      const scopedMemoryTool = new MemoryTool({
+        getProjectRoot: () => projectRoot,
+      } as unknown as ConstructorParameters<typeof MemoryTool>[0]);
+
+      const params = { fact: 'Use targetDir', scope: 'project' as const };
+      const invocation = scopedMemoryTool.build(params);
+      await invocation.execute(mockAbortSignal);
+
+      const expectedFilePath = path.join(
+        projectRoot,
+        getCurrentGeminiMdFilename(),
+      );
+
+      const expectedFsArgument = {
+        readFile: fs.readFile,
+        writeFile: fs.writeFile,
+        mkdir: fs.mkdir,
+      };
+
+      expect(performAddMemoryEntrySpy).toHaveBeenCalledWith(
+        params.fact,
+        expectedFilePath,
+        expectedFsArgument,
+      );
+    });
+
     it('should return an error if fact is empty', async () => {
       const params = { fact: ' ' }; // Empty fact
       expect(memoryTool.validateToolParams(params)).toBe(
@@ -585,6 +613,20 @@ describe('MemoryTool', () => {
       const description = invocation.getDescription();
 
       const expectedPath = path.join(process.cwd(), 'QWEN.md');
+      expect(description).toBe(`${expectedPath} (project)`);
+    });
+
+    it('should return project description based on config project root when provided', () => {
+      const projectRoot = '/mock/project-root';
+      const scopedMemoryTool = new MemoryTool({
+        getProjectRoot: () => projectRoot,
+      } as unknown as ConstructorParameters<typeof MemoryTool>[0]);
+
+      const params = { fact: 'Test fact', scope: 'project' as const };
+      const invocation = scopedMemoryTool.build(params);
+      const description = invocation.getDescription();
+
+      const expectedPath = path.join(projectRoot, 'QWEN.md');
       expect(description).toBe(`${expectedPath} (project)`);
     });
 

@@ -19,6 +19,7 @@ import * as Diff from 'diff';
 import { DEFAULT_DIFF_OPTIONS } from './diffOptions.js';
 import { tildeifyPath } from '../utils/paths.js';
 import { ToolDisplayNames, ToolNames } from './tool-names.js';
+import type { Config } from '../config/config.js';
 import type {
   ModifiableDeclarativeTool,
   ModifyContext,
@@ -114,13 +115,17 @@ function getGlobalMemoryFilePath(): string {
   return path.join(Storage.getGlobalQwenDir(), getCurrentGeminiMdFilename());
 }
 
-function getProjectMemoryFilePath(): string {
-  return path.join(process.cwd(), getCurrentGeminiMdFilename());
+function getProjectMemoryFilePath(config?: Config): string {
+  const projectRoot = config?.getProjectRoot() ?? process.cwd();
+  return path.join(projectRoot, getCurrentGeminiMdFilename());
 }
 
-function getMemoryFilePath(scope: 'global' | 'project' = 'global'): string {
+function getMemoryFilePath(
+  scope: 'global' | 'project' = 'global',
+  config?: Config,
+): string {
   return scope === 'project'
-    ? getProjectMemoryFilePath()
+    ? getProjectMemoryFilePath(config)
     : getGlobalMemoryFilePath();
 }
 
@@ -201,14 +206,23 @@ class MemoryToolInvocation extends BaseToolInvocation<
 > {
   private static readonly allowlist: Set<string> = new Set();
 
+  constructor(
+    params: SaveMemoryParams,
+    private readonly config?: Config,
+  ) {
+    super(params);
+  }
+
   getDescription(): string {
     if (!this.params.scope) {
-      const globalPath = tildeifyPath(getMemoryFilePath('global'));
-      const projectPath = tildeifyPath(getMemoryFilePath('project'));
+      const globalPath = tildeifyPath(getMemoryFilePath('global', this.config));
+      const projectPath = tildeifyPath(
+        getMemoryFilePath('project', this.config),
+      );
       return `CHOOSE: ${globalPath} (global) OR ${projectPath} (project)`;
     }
     const scope = this.params.scope;
-    const memoryFilePath = getMemoryFilePath(scope);
+    const memoryFilePath = getMemoryFilePath(scope, this.config);
     return `${tildeifyPath(memoryFilePath)} (${scope})`;
   }
 
@@ -222,10 +236,14 @@ class MemoryToolInvocation extends BaseToolInvocation<
       const currentContent = await readMemoryFileContent(defaultScope);
       const newContent = computeNewContent(currentContent, this.params.fact);
 
-      const globalPath = tildeifyPath(getMemoryFilePath('global'));
-      const projectPath = tildeifyPath(getMemoryFilePath('project'));
+      const globalPath = tildeifyPath(getMemoryFilePath('global', this.config));
+      const projectPath = tildeifyPath(
+        getMemoryFilePath('project', this.config),
+      );
 
-      const fileName = path.basename(getMemoryFilePath(defaultScope));
+      const fileName = path.basename(
+        getMemoryFilePath(defaultScope, this.config),
+      );
       const choiceText = `Choose where to save this memory:
 
 "${this.params.fact}"
@@ -251,7 +269,7 @@ Preview of changes to be made to GLOBAL memory:
         type: 'edit',
         title: `Choose Memory Location: GLOBAL (${globalPath}) or PROJECT (${projectPath})`,
         fileName,
-        filePath: getMemoryFilePath(defaultScope),
+        filePath: getMemoryFilePath(defaultScope, this.config),
         fileDiff,
         originalContent: `scope: global\n\n# INSTRUCTIONS:\n# - Click "Yes" to save to GLOBAL memory: ${globalPath}\n# - Click "Modify with external editor" and change "global" to "project" to save to PROJECT memory: ${projectPath}\n\n${currentContent}`,
         newContent: `scope: global\n\n# INSTRUCTIONS:\n# - Click "Yes" to save to GLOBAL memory: ${globalPath}\n# - Click "Modify with external editor" and change "global" to "project" to save to PROJECT memory: ${projectPath}\n\n${newContent}`,
@@ -264,7 +282,7 @@ Preview of changes to be made to GLOBAL memory:
 
     // Only check allowlist when scope is specified
     const scope = this.params.scope;
-    const memoryFilePath = getMemoryFilePath(scope);
+    const memoryFilePath = getMemoryFilePath(scope, this.config);
     const allowlistKey = `${memoryFilePath}_${scope}`;
 
     if (MemoryToolInvocation.allowlist.has(allowlistKey)) {
@@ -317,8 +335,10 @@ Preview of changes to be made to GLOBAL memory:
 
     // If scope is not specified and user didn't modify content, return error prompting for choice
     if (!this.params.scope && !modified_by_user) {
-      const globalPath = tildeifyPath(getMemoryFilePath('global'));
-      const projectPath = tildeifyPath(getMemoryFilePath('project'));
+      const globalPath = tildeifyPath(getMemoryFilePath('global', this.config));
+      const projectPath = tildeifyPath(
+        getMemoryFilePath('project', this.config),
+      );
       const errorMessage = `Please specify where to save this memory:
 
 Global: ${globalPath} (shared across all projects)
@@ -331,7 +351,7 @@ Project: ${projectPath} (current project only)`;
     }
 
     const scope = this.params.scope || 'global';
-    const memoryFilePath = getMemoryFilePath(scope);
+    const memoryFilePath = getMemoryFilePath(scope, this.config);
 
     try {
       if (modified_by_user && modified_content !== undefined) {
@@ -382,7 +402,7 @@ export class MemoryTool
   implements ModifiableDeclarativeTool<SaveMemoryParams>
 {
   static readonly Name: string = ToolNames.MEMORY;
-  constructor() {
+  constructor(private readonly config?: Config) {
     super(
       MemoryTool.Name,
       ToolDisplayNames.MEMORY,
@@ -403,7 +423,7 @@ export class MemoryTool
   }
 
   protected createInvocation(params: SaveMemoryParams) {
-    return new MemoryToolInvocation(params);
+    return new MemoryToolInvocation(params, this.config);
   }
 
   static async performAddMemoryEntry(
@@ -458,7 +478,7 @@ export class MemoryTool
             scope = scopeMatch[1].toLowerCase() as 'global' | 'project';
           }
         }
-        return getMemoryFilePath(scope);
+        return getMemoryFilePath(scope, this.config);
       },
       getCurrentContent: async (params: SaveMemoryParams): Promise<string> => {
         // Check if content starts with scope directive
@@ -469,15 +489,23 @@ export class MemoryTool
           if (scopeMatch) {
             const scope = scopeMatch[1].toLowerCase() as 'global' | 'project';
             const content = await readMemoryFileContent(scope);
-            const globalPath = tildeifyPath(getMemoryFilePath('global'));
-            const projectPath = tildeifyPath(getMemoryFilePath('project'));
+            const globalPath = tildeifyPath(
+              getMemoryFilePath('global', this.config),
+            );
+            const projectPath = tildeifyPath(
+              getMemoryFilePath('project', this.config),
+            );
             return `scope: ${scope}\n\n# INSTRUCTIONS:\n# - Save as "global" for GLOBAL memory: ${globalPath}\n# - Save as "project" for PROJECT memory: ${projectPath}\n\n${content}`;
           }
         }
         const scope = params.scope || 'global';
         const content = await readMemoryFileContent(scope);
-        const globalPath = tildeifyPath(getMemoryFilePath('global'));
-        const projectPath = tildeifyPath(getMemoryFilePath('project'));
+        const globalPath = tildeifyPath(
+          getMemoryFilePath('global', this.config),
+        );
+        const projectPath = tildeifyPath(
+          getMemoryFilePath('project', this.config),
+        );
         return `scope: ${scope}\n\n# INSTRUCTIONS:\n# - Save as "global" for GLOBAL memory: ${globalPath}\n# - Save as "project" for PROJECT memory: ${projectPath}\n\n${content}`;
       },
       getProposedContent: async (params: SaveMemoryParams): Promise<string> => {
@@ -495,8 +523,12 @@ export class MemoryTool
 
         const currentContent = await readMemoryFileContent(scope);
         const newContent = computeNewContent(currentContent, params.fact);
-        const globalPath = tildeifyPath(getMemoryFilePath('global'));
-        const projectPath = tildeifyPath(getMemoryFilePath('project'));
+        const globalPath = tildeifyPath(
+          getMemoryFilePath('global', this.config),
+        );
+        const projectPath = tildeifyPath(
+          getMemoryFilePath('project', this.config),
+        );
         return `scope: ${scope}\n\n# INSTRUCTIONS:\n# - Save as "global" for GLOBAL memory: ${globalPath}\n# - Save as "project" for PROJECT memory: ${projectPath}\n\n${newContent}`;
       },
       createUpdatedParams: (

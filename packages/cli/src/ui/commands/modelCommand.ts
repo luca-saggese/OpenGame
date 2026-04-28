@@ -11,7 +11,7 @@ import type {
   MessageActionReturn,
 } from './types.js';
 import { CommandKind } from './types.js';
-import { getAvailableModelsForAuthType } from '../models/availableModels.js';
+import { getAvailableModelsForAuthTypeAsync } from '../models/availableModels.js';
 import { t } from '../../i18n/index.js';
 
 export const modelCommand: SlashCommand = {
@@ -52,7 +52,11 @@ export const modelCommand: SlashCommand = {
       };
     }
 
-    const availableModels = getAvailableModelsForAuthType(authType);
+    const availableModels = await getAvailableModelsForAuthTypeAsync(authType, {
+      configuredModel: config.getModel(),
+      baseUrl: contentGeneratorConfig.baseUrl,
+      apiKey: contentGeneratorConfig.apiKey,
+    });
 
     if (availableModels.length === 0) {
       return {

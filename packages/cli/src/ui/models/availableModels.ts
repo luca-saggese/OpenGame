@@ -65,24 +65,156 @@ export function getAnthropicAvailableModelFromEnv(): AvailableModel | null {
   return id ? { id, label: id } : null;
 }
 
+type OpenRouterModel = {
+  id?: string;
+  name?: string;
+  description?: string;
+};
+
+type OpenRouterModelsResponse = {
+  data?: OpenRouterModel[];
+};
+
+type AvailableModelOptions = {
+  configuredModel?: string;
+  baseUrl?: string;
+  apiKey?: string;
+};
+
+function isOpenRouterBaseUrl(baseUrl: string | undefined): boolean {
+  if (!baseUrl) {
+    return false;
+  }
+  try {
+    const parsed = new URL(baseUrl);
+    return parsed.hostname.includes('openrouter.ai');
+  } catch {
+    return baseUrl.includes('openrouter.ai');
+  }
+}
+
+function normalizeOpenRouterModelsUrl(baseUrl: string | undefined): string {
+  const fallbackBaseUrl = 'https://openrouter.ai/api/v1';
+  const raw = (baseUrl?.trim() || fallbackBaseUrl).replace(/\/+$/, '');
+  return raw.endsWith('/models') ? raw : `${raw}/models`;
+}
+
+function getOpenRouterApiKey(
+  explicitApiKey: string | undefined,
+): string | null {
+  const key =
+    explicitApiKey?.trim() ||
+    process.env['OPENAI_API_KEY']?.trim() ||
+    process.env['OPENROUTER_API_KEY']?.trim();
+  return key || null;
+}
+
+function mapOpenRouterModelsToAvailable(
+  models: OpenRouterModel[] | undefined,
+): AvailableModel[] {
+  if (!models?.length) {
+    return [];
+  }
+
+  return models
+    .map((model) => {
+      const id = model.id?.trim();
+      if (!id) {
+        return null;
+      }
+
+      const name = model.name?.trim();
+      const description = model.description?.trim();
+      return {
+        id,
+        label: name || id,
+        description: description || undefined,
+      } satisfies AvailableModel;
+    })
+    .filter((model): model is AvailableModel => model !== null);
+}
+
+async function fetchOpenRouterAvailableModels(
+  baseUrl: string | undefined,
+  apiKey: string,
+): Promise<AvailableModel[]> {
+  const url = normalizeOpenRouterModelsUrl(baseUrl);
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    return [];
+  }
+
+  const payload = (await response.json()) as OpenRouterModelsResponse;
+  const mapped = mapOpenRouterModelsToAvailable(payload.data);
+  return mapped.sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function toAvailableModel(modelId: string | undefined): AvailableModel | null {
+  const id = modelId?.trim();
+  return id ? { id, label: id } : null;
+}
+
 export function getAvailableModelsForAuthType(
   authType: AuthType,
+  configuredModel?: string,
 ): AvailableModel[] {
   switch (authType) {
     case AuthType.QWEN_OAUTH:
       return AVAILABLE_MODELS_QWEN;
     case AuthType.USE_OPENAI: {
-      const openAIModel = getOpenAIAvailableModelFromEnv();
+      const openAIModel =
+        getOpenAIAvailableModelFromEnv() ?? toAvailableModel(configuredModel);
       return openAIModel ? [openAIModel] : [];
     }
     case AuthType.USE_ANTHROPIC: {
-      const anthropicModel = getAnthropicAvailableModelFromEnv();
+      const anthropicModel =
+        getAnthropicAvailableModelFromEnv() ??
+        toAvailableModel(configuredModel);
       return anthropicModel ? [anthropicModel] : [];
     }
     default:
       // For other auth types, return empty array for now
       // This can be expanded later according to the design doc
       return [];
+  }
+}
+
+export async function getAvailableModelsForAuthTypeAsync(
+  authType: AuthType,
+  options: AvailableModelOptions = {},
+): Promise<AvailableModel[]> {
+  const fallbackModels = getAvailableModelsForAuthType(
+    authType,
+    options.configuredModel,
+  );
+
+  if (authType !== AuthType.USE_OPENAI) {
+    return fallbackModels;
+  }
+
+  if (!isOpenRouterBaseUrl(options.baseUrl || process.env['OPENAI_BASE_URL'])) {
+    return fallbackModels;
+  }
+
+  const apiKey = getOpenRouterApiKey(options.apiKey);
+  if (!apiKey) {
+    return fallbackModels;
+  }
+
+  try {
+    const openRouterModels = await fetchOpenRouterAvailableModels(
+      options.baseUrl || process.env['OPENAI_BASE_URL'],
+      apiKey,
+    );
+    return openRouterModels.length > 0 ? openRouterModels : fallbackModels;
+  } catch {
+    return fallbackModels;
   }
 }
 

@@ -5,7 +5,7 @@
  */
 
 import type React from 'react';
-import { useCallback, useContext, useMemo } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { Box, Text } from 'ink';
 import {
   AuthType,
@@ -17,7 +17,9 @@ import { theme } from '../semantic-colors.js';
 import { DescriptiveRadioButtonSelect } from './shared/DescriptiveRadioButtonSelect.js';
 import { ConfigContext } from '../contexts/ConfigContext.js';
 import {
+  type AvailableModel,
   getAvailableModelsForAuthType,
+  getAvailableModelsForAuthTypeAsync,
   MAINLINE_CODER,
 } from '../models/availableModels.js';
 import { t } from '../../i18n/index.js';
@@ -31,12 +33,44 @@ export function ModelDialog({ onClose }: ModelDialogProps): React.JSX.Element {
 
   // Get auth type from config, default to QWEN_OAUTH if not available
   const authType = config?.getAuthType() ?? AuthType.QWEN_OAUTH;
+  const configuredModel = config?.getModel();
+  const contentGeneratorConfig = config?.getContentGeneratorConfig();
 
-  // Get available models based on auth type
-  const availableModels = useMemo(
-    () => getAvailableModelsForAuthType(authType),
-    [authType],
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>(() =>
+    getAvailableModelsForAuthType(authType, configuredModel),
   );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fallbackModels = getAvailableModelsForAuthType(
+      authType,
+      configuredModel,
+    );
+    setAvailableModels(fallbackModels);
+
+    const loadModels = async () => {
+      const models = await getAvailableModelsForAuthTypeAsync(authType, {
+        configuredModel,
+        baseUrl: contentGeneratorConfig?.baseUrl,
+        apiKey: contentGeneratorConfig?.apiKey,
+      });
+      if (!cancelled) {
+        setAvailableModels(models);
+      }
+    };
+
+    void loadModels();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    authType,
+    configuredModel,
+    contentGeneratorConfig?.apiKey,
+    contentGeneratorConfig?.baseUrl,
+  ]);
 
   const MODEL_OPTIONS = useMemo(
     () =>
