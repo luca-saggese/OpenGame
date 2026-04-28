@@ -53,7 +53,7 @@ export const modelCommand: SlashCommand = {
     }
 
     const availableModels = await getAvailableModelsForAuthTypeAsync(authType, {
-      configuredModel: config.getModel(),
+      configuredModel: config.getModel?.(),
       baseUrl: contentGeneratorConfig.baseUrl,
       apiKey: contentGeneratorConfig.apiKey,
     });

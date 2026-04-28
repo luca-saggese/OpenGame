@@ -32,9 +32,9 @@ export function ModelDialog({ onClose }: ModelDialogProps): React.JSX.Element {
   const config = useContext(ConfigContext);
 
   // Get auth type from config, default to QWEN_OAUTH if not available
-  const authType = config?.getAuthType() ?? AuthType.QWEN_OAUTH;
-  const configuredModel = config?.getModel();
-  const contentGeneratorConfig = config?.getContentGeneratorConfig();
+  const authType = config?.getAuthType?.() ?? AuthType.QWEN_OAUTH;
+  const configuredModel = config?.getModel?.();
+  const contentGeneratorConfig = config?.getContentGeneratorConfig?.();
 
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>(() =>
     getAvailableModelsForAuthType(authType, configuredModel),

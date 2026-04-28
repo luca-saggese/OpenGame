@@ -953,6 +953,7 @@ export async function loadCliConfig(
     (selectedAuthType === AuthType.USE_OPENAI
       ? process.env['OPENAI_MODEL'] ||
         process.env['QWEN_MODEL'] ||
+        process.env['OPENGAME_REASONING_MODEL'] ||
         settings.model?.name
       : '') ||
     '';

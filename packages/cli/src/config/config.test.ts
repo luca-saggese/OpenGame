@@ -2079,6 +2079,13 @@ describe('loadCliConfig extensions', () => {
 });
 
 describe('loadCliConfig model selection', () => {
+  const originalArgv = process.argv;
+
+  afterEach(() => {
+    process.argv = originalArgv;
+    vi.unstubAllEnvs();
+  });
+
   it.skip('selects a model from settings.json if provided', async () => {
     process.argv = ['node', 'script.js'];
     const argv = await parseArguments({} as Settings);
@@ -2167,6 +2174,33 @@ describe('loadCliConfig model selection', () => {
     );
 
     expect(config.getModel()).toBe('qwen3-coder-plus');
+  });
+
+  it('prefers OPENGAME_REASONING_MODEL over settings.model.name for openai auth', async () => {
+    vi.stubEnv('OPENGAME_REASONING_MODEL', 'xiaomi/mimo-v2-flash');
+    process.argv = ['node', 'script.js', '--auth-type', 'openai'];
+
+    const argv = await parseArguments({} as Settings);
+    const config = await loadCliConfig(
+      {
+        security: {
+          auth: {
+            selectedType: 'openai',
+          },
+        },
+        model: {
+          name: 'deepseek/deepseek-v4-pro',
+        },
+      },
+      [],
+      new ExtensionEnablementManager(
+        ExtensionStorage.getUserExtensionsDir(),
+        argv.extensions,
+      ),
+      argv,
+    );
+
+    expect(config.getModel()).toBe('xiaomi/mimo-v2-flash');
   });
 });
 

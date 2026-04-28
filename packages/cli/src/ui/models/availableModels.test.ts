@@ -32,6 +32,8 @@ describe('getAvailableModelsForAuthType', () => {
     } else {
       process.env['ANTHROPIC_MODEL'] = originalAnthropicModel;
     }
+
+    vi.unstubAllGlobals();
   });
 
   it('uses OPENAI_MODEL when available', () => {

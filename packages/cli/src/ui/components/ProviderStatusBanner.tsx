@@ -37,7 +37,7 @@ export const ProviderStatusBanner: React.FC<ProviderStatusBannerProps> = ({
   return (
     <Box flexDirection="column" marginTop={1}>
       <Box>
-        <Text color={theme.text.secondary}>Providers: </Text>
+        <Text color={theme.text.secondary}>OpenGame providers: </Text>
         {statuses.map((s, i) => (
           <Text key={s.modality}>
             {i > 0 && <Text color={theme.text.secondary}> · </Text>}
@@ -59,6 +59,9 @@ export const ProviderStatusBanner: React.FC<ProviderStatusBannerProps> = ({
           to see how to configure the missing providers.
         </Text>
       )}
+      <Text color={theme.text.secondary}>
+        Session chat model is shown in the footer.
+      </Text>
     </Box>
   );
 };
