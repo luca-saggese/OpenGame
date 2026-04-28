@@ -11,6 +11,7 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import { useGeminiStream } from './useGeminiStream.js';
 import { useKeypress } from './useKeypress.js';
 import * as atCommandProcessor from './atCommandProcessor.js';
+import * as markdownUtilities from '../utils/markdownUtilities.js';
 import type {
   TrackedToolCall,
   TrackedCompletedToolCall,
@@ -850,6 +851,56 @@ describe('useGeminiStream', () => {
 
     // 6. After submission, the state should remain Responding until the stream completes.
     expect(result.current.streamingState).toBe(StreamingState.Responding);
+  });
+
+  it('should not add empty history entries when split point is zero during code streaming', async () => {
+    const splitMock = vi.mocked(markdownUtilities.findLastSafeSplitPoint);
+    splitMock.mockImplementation((content: string) =>
+      content.startsWith('```') ? 0 : content.length,
+    );
+
+    const mockStream = (async function* () {
+      yield {
+        type: ServerGeminiEventType.Content,
+        value: '```ts\n',
+      };
+      yield {
+        type: ServerGeminiEventType.Content,
+        value: 'const x = 1;\n',
+      };
+      yield {
+        type: ServerGeminiEventType.Content,
+        value: 'const y = 2;\n',
+      };
+      yield {
+        type: ServerGeminiEventType.Finished,
+        value: { reason: FinishReason.STOP },
+      };
+    })();
+    mockSendMessageStream.mockReturnValue(mockStream);
+
+    const { result } = renderTestHook();
+
+    await act(async () => {
+      await result.current.submitQuery('write code');
+    });
+
+    await waitFor(() => {
+      expect(result.current.streamingState).toBe(StreamingState.Idle);
+    });
+
+    const emptyGeminiEntries = mockAddItem.mock.calls.filter(([item]) => {
+      const historyItem = item as { type?: string; text?: string } | undefined;
+      return (
+        (historyItem?.type === 'gemini' ||
+          historyItem?.type === 'gemini_content') &&
+        historyItem?.text === ''
+      );
+    });
+
+    expect(emptyGeminiEntries).toHaveLength(0);
+
+    splitMock.mockImplementation((s: string) => s.length);
   });
 
   describe('User Cancellation', () => {

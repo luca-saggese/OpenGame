@@ -462,7 +462,9 @@ export const useGeminiStream = (
       // Split large messages for better rendering performance. Ideally,
       // we should maximize the amount of output sent to <Static />.
       const splitPoint = findLastSafeSplitPoint(newGeminiMessageBuffer);
-      if (splitPoint === newGeminiMessageBuffer.length) {
+      // A split point at 0 would create empty history entries on every chunk,
+      // which surfaces as growing blank lines while a code block is streaming.
+      if (splitPoint <= 0 || splitPoint === newGeminiMessageBuffer.length) {
         // Update the existing message with accumulated content
         setPendingHistoryItem((item) => ({
           type: item?.type as 'gemini' | 'gemini_content',
@@ -551,7 +553,7 @@ export const useGeminiStream = (
           ? 'gemini_thought_content'
           : 'gemini_thought';
 
-      if (splitPoint === newThoughtBuffer.length) {
+      if (splitPoint <= 0 || splitPoint === newThoughtBuffer.length) {
         // Update the existing thought message with accumulated content
         setPendingHistoryItem({
           type: nextPendingType,
