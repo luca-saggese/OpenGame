@@ -11,6 +11,7 @@ import { InputPrompt } from './InputPrompt.js';
 import type { TextBuffer } from './shared/text-buffer.js';
 import type { Config } from '@opengame/opengame-core';
 import { ApprovalMode } from '@opengame/opengame-core';
+import { StreamingState } from '../types.js';
 import * as path from 'node:path';
 import type { CommandContext, SlashCommand } from '../commands/types.js';
 import { CommandKind } from '../commands/types.js';
@@ -253,6 +254,38 @@ describe('InputPrompt', () => {
 
     expect(mockShellHistory.addCommandToHistory).toHaveBeenCalledWith('ls -l');
     expect(props.onSubmit).toHaveBeenCalledWith('ls -l');
+    unmount();
+  });
+
+  it('should submit steering input with Ctrl+Y while responding', async () => {
+    props.streamingState = StreamingState.Responding;
+    props.onSteer = vi.fn();
+    props.buffer.setText('steer this next turn');
+
+    const { stdin, unmount } = renderWithProviders(<InputPrompt {...props} />);
+    await wait();
+
+    stdin.write('\x19');
+    await wait();
+
+    expect(props.onSteer).toHaveBeenCalledWith('steer this next turn');
+    expect(props.onSubmit).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('should ignore Ctrl+Y when not responding', async () => {
+    props.streamingState = StreamingState.Idle;
+    props.onSteer = vi.fn();
+    props.buffer.setText('should not steer');
+
+    const { stdin, unmount } = renderWithProviders(<InputPrompt {...props} />);
+    await wait();
+
+    stdin.write('\x19');
+    await wait();
+
+    expect(props.onSteer).not.toHaveBeenCalled();
+    expect(props.onSubmit).not.toHaveBeenCalled();
     unmount();
   });
 

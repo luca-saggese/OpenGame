@@ -47,6 +47,7 @@ describe('keyMatchers', () => {
       key.name === 'return' && !key.ctrl && !key.meta && !key.paste,
     [Command.NEWLINE]: (key: Key) =>
       key.name === 'return' && (key.ctrl || key.meta || key.paste),
+    [Command.STEER]: (key: Key) => key.ctrl && key.name === 'y',
     [Command.OPEN_EXTERNAL_EDITOR]: (key: Key) =>
       key.ctrl && (key.name === 'x' || key.sequence === '\x18'),
     [Command.PASTE_CLIPBOARD_IMAGE]: (key: Key) => key.ctrl && key.name === 'v',
@@ -192,6 +193,11 @@ describe('keyMatchers', () => {
         createKey('return', { paste: true }),
       ],
       negative: [createKey('return'), createKey('n')],
+    },
+    {
+      command: Command.STEER,
+      positive: [createKey('y', { ctrl: true })],
+      negative: [createKey('y'), createKey('return', { ctrl: true })],
     },
 
     // External tools

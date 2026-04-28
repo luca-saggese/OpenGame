@@ -36,9 +36,11 @@ import {
 import * as path from 'node:path';
 import { SCREEN_READER_USER_PREFIX } from '../textConstants.js';
 import { useShellFocusState } from '../contexts/ShellFocusContext.js';
+import { StreamingState } from '../types.js';
 export interface InputPromptProps {
   buffer: TextBuffer;
   onSubmit: (value: string) => void;
+  onSteer?: (value: string) => void;
   userMessages: readonly string[];
   onClearScreen: () => void;
   config: Config;
@@ -54,6 +56,7 @@ export interface InputPromptProps {
   onEscapePromptChange?: (showPrompt: boolean) => void;
   vimHandleInput?: (key: Key) => boolean;
   isEmbeddedShellFocused?: boolean;
+  streamingState?: StreamingState;
 }
 
 // The input content, input container, and input suggestions list may have different widths
@@ -84,6 +87,7 @@ export const calculatePromptWidths = (terminalWidth: number) => {
 export const InputPrompt: React.FC<InputPromptProps> = ({
   buffer,
   onSubmit,
+  onSteer,
   userMessages,
   onClearScreen,
   config,
@@ -98,6 +102,7 @@ export const InputPrompt: React.FC<InputPromptProps> = ({
   onEscapePromptChange,
   vimHandleInput,
   isEmbeddedShellFocused,
+  streamingState,
 }) => {
   const isShellFocused = useShellFocusState();
   const [justNavigatedHistory, setJustNavigatedHistory] = useState(false);
@@ -206,6 +211,18 @@ export const InputPrompt: React.FC<InputPromptProps> = ({
       shellHistory,
       resetReverseSearchCompletionState,
     ],
+  );
+
+  const handleSteeringSubmitAndClear = useCallback(
+    (submittedValue: string) => {
+      buffer.setText('');
+      if (onSteer) {
+        onSteer(submittedValue);
+      }
+      resetCompletionState();
+      resetReverseSearchCompletionState();
+    },
+    [onSteer, buffer, resetCompletionState, resetReverseSearchCompletionState],
   );
 
   const customSetTextAndResetCompletionSignal = useCallback(
@@ -593,6 +610,17 @@ export const InputPrompt: React.FC<InputPromptProps> = ({
         return;
       }
 
+      if (keyMatchers[Command.STEER](key)) {
+        if (
+          buffer.text.trim() &&
+          !shellModeActive &&
+          streamingState === StreamingState.Responding
+        ) {
+          handleSteeringSubmitAndClear(buffer.text);
+        }
+        return;
+      }
+
       // Newline insertion
       if (keyMatchers[Command.NEWLINE](key)) {
         buffer.newline();
@@ -656,6 +684,7 @@ export const InputPrompt: React.FC<InputPromptProps> = ({
       onClearScreen,
       inputHistory,
       handleSubmitAndClear,
+      handleSteeringSubmitAndClear,
       shellHistory,
       reverseSearchCompletion,
       handleClipboardImage,
@@ -670,6 +699,7 @@ export const InputPrompt: React.FC<InputPromptProps> = ({
       recentPasteTime,
       commandSearchActive,
       commandSearchCompletion,
+      streamingState,
     ],
   );
 

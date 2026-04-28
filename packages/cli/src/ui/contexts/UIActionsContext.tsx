@@ -52,6 +52,7 @@ export interface UIActions {
   onEscapePromptChange: (show: boolean) => void;
   refreshStatic: () => void;
   handleFinalSubmit: (value: string) => void;
+  handleSteeringSubmit: (value: string) => void;
   handleClearScreen: () => void;
   onWorkspaceMigrationDialogOpen: () => void;
   onWorkspaceMigrationDialogClose: () => void;

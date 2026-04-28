@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('openai');
 import type OpenAI from 'openai';
 import {
@@ -198,9 +198,9 @@ describe('OpenRouterOpenAICompatibleProvider', () => {
     });
 
     it('should not modify URL that already has /api/v1', () => {
-      expect(
-        normalizeOpenRouterBaseUrl('https://openrouter.ai/api/v1'),
-      ).toBe('https://openrouter.ai/api/v1');
+      expect(normalizeOpenRouterBaseUrl('https://openrouter.ai/api/v1')).toBe(
+        'https://openrouter.ai/api/v1',
+      );
     });
 
     it('should strip trailing slash before normalizing', () => {

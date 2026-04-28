@@ -39,6 +39,7 @@ export enum Command {
   // Text input
   SUBMIT = 'submit',
   NEWLINE = 'newline',
+  STEER = 'steer',
 
   // External tools
   OPEN_EXTERNAL_EDITOR = 'openExternalEditor',
@@ -146,6 +147,7 @@ export const defaultKeyBindings: KeyBindingConfig = {
     { key: 'return', shift: true },
     { key: 'j', ctrl: true },
   ],
+  [Command.STEER]: [{ key: 'y', ctrl: true }],
 
   // External tools
   [Command.OPEN_EXTERNAL_EDITOR]: [

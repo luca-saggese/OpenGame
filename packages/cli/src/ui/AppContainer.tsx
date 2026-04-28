@@ -679,6 +679,13 @@ export const AppContainer = (props: AppContainerProps) => {
     [addMessage],
   );
 
+  const handleSteeringSubmit = useCallback(
+    (submittedValue: string) => {
+      addMessage(submittedValue);
+    },
+    [addMessage],
+  );
+
   // Welcome back functionality (must be after handleFinalSubmit)
   const {
     welcomeBackInfo,
@@ -1409,6 +1416,7 @@ export const AppContainer = (props: AppContainerProps) => {
       onEscapePromptChange: handleEscapePromptChange,
       refreshStatic,
       handleFinalSubmit,
+      handleSteeringSubmit,
       handleClearScreen,
       onWorkspaceMigrationDialogOpen,
       onWorkspaceMigrationDialogClose,
@@ -1446,6 +1454,7 @@ export const AppContainer = (props: AppContainerProps) => {
       handleEscapePromptChange,
       refreshStatic,
       handleFinalSubmit,
+      handleSteeringSubmit,
       handleClearScreen,
       onWorkspaceMigrationDialogOpen,
       onWorkspaceMigrationDialogClose,
