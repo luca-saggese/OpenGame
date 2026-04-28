@@ -8,5 +8,3 @@ GenerateAssets {"style_anchor":"16-bit pixel art in the style of classic SNES Bo
 │ animation/audio-from-video generation.
 
 list openrouter models
-
-Discrepanza modelli

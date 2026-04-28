@@ -116,22 +116,22 @@ function mapOpenRouterModelsToAvailable(
     return [];
   }
 
-  return models
-    .map((model) => {
-      const id = model.id?.trim();
-      if (!id) {
-        return null;
-      }
+  const mapped: Array<AvailableModel | null> = models.map((model) => {
+    const id = model.id?.trim();
+    if (!id) {
+      return null;
+    }
 
-      const name = model.name?.trim();
-      const description = model.description?.trim();
-      return {
-        id,
-        label: name || id,
-        description: description || undefined,
-      } satisfies AvailableModel;
-    })
-    .filter((model): model is AvailableModel => model !== null);
+    const name = model.name?.trim();
+    const description = model.description?.trim();
+    return {
+      id,
+      label: name || id,
+      ...(description ? { description } : {}),
+    };
+  });
+
+  return mapped.filter((model): model is AvailableModel => model !== null);
 }
 
 async function fetchOpenRouterAvailableModels(

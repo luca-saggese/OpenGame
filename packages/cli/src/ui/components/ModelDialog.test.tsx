@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ModelDialog } from './ModelDialog.js';
 import { useKeypress } from '../hooks/useKeypress.js';
 import { DescriptiveRadioButtonSelect } from './shared/DescriptiveRadioButtonSelect.js';
+import { TextInput } from './shared/TextInput.js';
 import { ConfigContext } from '../contexts/ConfigContext.js';
 import type { Config } from '@opengame/opengame-core';
 import {
@@ -26,6 +27,11 @@ vi.mock('./shared/DescriptiveRadioButtonSelect.js', () => ({
   DescriptiveRadioButtonSelect: vi.fn(() => null),
 }));
 const mockedSelect = vi.mocked(DescriptiveRadioButtonSelect);
+
+vi.mock('./shared/TextInput.js', () => ({
+  TextInput: vi.fn(() => null),
+}));
+const mockedTextInput = vi.mocked(TextInput);
 
 const renderComponent = (
   props: Partial<React.ComponentProps<typeof ModelDialog>> = {},
@@ -82,18 +88,40 @@ describe('<ModelDialog />', () => {
   it('renders the title and help text', () => {
     const { getByText } = renderComponent();
     expect(getByText('Select Model')).toBeDefined();
+    expect(getByText('Search models')).toBeDefined();
+    expect(
+      getByText('(Press Tab to switch between search and list)'),
+    ).toBeDefined();
     expect(getByText('(Press Esc to close)')).toBeDefined();
   });
 
   it('passes all model options to DescriptiveRadioButtonSelect', () => {
     renderComponent();
     expect(mockedSelect).toHaveBeenCalledTimes(1);
+    expect(mockedTextInput).toHaveBeenCalledTimes(1);
 
     const props = mockedSelect.mock.calls[0][0];
     expect(props.items).toHaveLength(AVAILABLE_MODELS_QWEN.length);
     expect(props.items[0].value).toBe(MAINLINE_CODER);
     expect(props.items[1].value).toBe(MAINLINE_VLM);
     expect(props.showNumbers).toBe(true);
+    expect(props.isFocused).toBe(false);
+
+    const textInputProps = mockedTextInput.mock.calls[0][0];
+    expect(textInputProps.value).toBe('');
+    expect(textInputProps.isActive).toBe(true);
+  });
+
+  it('filters model options when search query changes', () => {
+    renderComponent();
+
+    const onChange = mockedTextInput.mock.calls[0][0].onChange;
+    onChange('vlm');
+
+    const latestSelectProps =
+      mockedSelect.mock.calls[mockedSelect.mock.calls.length - 1][0];
+    expect(latestSelectProps.items).toHaveLength(1);
+    expect(latestSelectProps.items[0].value).toBe(MAINLINE_VLM);
   });
 
   it('initializes with the model from ConfigContext', () => {
@@ -188,6 +216,29 @@ describe('<ModelDialog />', () => {
       sequence: '',
     });
     expect(props.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('moves focus from search to list when down arrow is pressed', () => {
+    renderComponent();
+
+    const keyPressHandler = mockedUseKeypress.mock.calls[0][0];
+
+    keyPressHandler({
+      name: 'down',
+      ctrl: false,
+      meta: false,
+      shift: false,
+      paste: false,
+      sequence: '',
+    });
+
+    const latestSelectProps =
+      mockedSelect.mock.calls[mockedSelect.mock.calls.length - 1][0];
+    const latestTextInputProps =
+      mockedTextInput.mock.calls[mockedTextInput.mock.calls.length - 1][0];
+
+    expect(latestSelectProps.isFocused).toBe(true);
+    expect(latestTextInputProps.isActive).toBe(false);
   });
 
   it('updates initialIndex when config context changes', () => {

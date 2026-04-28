@@ -15,6 +15,7 @@ import {
 import { useKeypress } from '../hooks/useKeypress.js';
 import { theme } from '../semantic-colors.js';
 import { DescriptiveRadioButtonSelect } from './shared/DescriptiveRadioButtonSelect.js';
+import { TextInput } from './shared/TextInput.js';
 import { ConfigContext } from '../contexts/ConfigContext.js';
 import {
   type AvailableModel,
@@ -39,6 +40,8 @@ export function ModelDialog({ onClose }: ModelDialogProps): React.JSX.Element {
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>(() =>
     getAvailableModelsForAuthType(authType, configuredModel),
   );
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchFocused, setIsSearchFocused] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,11 +86,41 @@ export function ModelDialog({ onClose }: ModelDialogProps): React.JSX.Element {
     [availableModels],
   );
 
+  const FILTERED_MODEL_OPTIONS = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    if (!normalizedQuery) {
+      return MODEL_OPTIONS;
+    }
+
+    return MODEL_OPTIONS.filter((model) =>
+      [model.title, model.value, model.description]
+        .join(' ')
+        .toLowerCase()
+        .includes(normalizedQuery),
+    );
+  }, [MODEL_OPTIONS, searchQuery]);
+
   // Determine the Preferred Model (read once when the dialog opens).
   const preferredModel = config?.getModel() || MAINLINE_CODER;
 
   useKeypress(
     (key) => {
+      if (key.name === 'tab') {
+        setIsSearchFocused((current) => !current);
+        return;
+      }
+
+      // When typing in search, allow quick handoff to the list.
+      if (isSearchFocused && (key.name === 'down' || key.name === 'j')) {
+        setIsSearchFocused(false);
+        return;
+      }
+
+      if (isSearchFocused && key.name === 'return') {
+        setIsSearchFocused(false);
+        return;
+      }
+
       if (key.name === 'escape') {
         onClose();
       }
@@ -97,8 +130,11 @@ export function ModelDialog({ onClose }: ModelDialogProps): React.JSX.Element {
 
   // Calculate the initial index based on the preferred model.
   const initialIndex = useMemo(
-    () => MODEL_OPTIONS.findIndex((option) => option.value === preferredModel),
-    [MODEL_OPTIONS, preferredModel],
+    () =>
+      FILTERED_MODEL_OPTIONS.findIndex(
+        (option) => option.value === preferredModel,
+      ),
+    [FILTERED_MODEL_OPTIONS, preferredModel],
   );
 
   // Handle selection internally (Autonomous Dialog).
@@ -123,15 +159,29 @@ export function ModelDialog({ onClose }: ModelDialogProps): React.JSX.Element {
       width="100%"
     >
       <Text bold>{t('Select Model')}</Text>
+      <Box marginTop={1} flexDirection="column">
+        <Text color={theme.text.secondary}>{t('Search models')}</Text>
+        <TextInput
+          value={searchQuery}
+          onChange={setSearchQuery}
+          placeholder={t('Type to filter models...')}
+          isActive={isSearchFocused}
+          inputWidth={60}
+        />
+      </Box>
       <Box marginTop={1}>
         <DescriptiveRadioButtonSelect
-          items={MODEL_OPTIONS}
+          items={FILTERED_MODEL_OPTIONS}
           onSelect={handleSelect}
           initialIndex={initialIndex}
           showNumbers={true}
+          isFocused={!isSearchFocused}
         />
       </Box>
       <Box marginTop={1} flexDirection="column">
+        <Text color={theme.text.secondary}>
+          {t('(Press Tab to switch between search and list)')}
+        </Text>
         <Text color={theme.text.secondary}>{t('(Press Esc to close)')}</Text>
       </Box>
     </Box>

@@ -940,12 +940,15 @@ export async function loadCliConfig(
     (selectedAuthType === AuthType.USE_OPENAI
       ? argv.openaiApiKey ||
         process.env['OPENAI_API_KEY'] ||
+        process.env['OPENGAME_REASONING_API_KEY'] ||
+        process.env['OPENROUTER_API_KEY'] ||
         settings.security?.auth?.apiKey
       : '') || '';
   const baseUrl =
     (selectedAuthType === AuthType.USE_OPENAI
       ? argv.openaiBaseUrl ||
         process.env['OPENAI_BASE_URL'] ||
+        process.env['OPENGAME_REASONING_BASE_URL'] ||
         settings.security?.auth?.baseUrl
       : '') || '';
   const resolvedModel =
