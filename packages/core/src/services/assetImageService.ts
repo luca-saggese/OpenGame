@@ -6,7 +6,6 @@
 
 import { BaseService } from './assetBaseService.js';
 import type { ImageModelConfig } from '../tools/generate-assets-types.js';
-import { debug } from '@anthropic-ai/sdk/core.mjs';
 
 // ============== Debug Logging ==============
 
@@ -41,7 +40,7 @@ export class TongyiImageService extends BaseService {
     size: string = '1024*1024',
   ): Promise<string> {
     debugLog('generateImage - Input Prompt', prompt);
-    
+
     this.log(`Generating image with Tongyi: ${prompt.substring(0, 50)}...`);
 
     const modelName = this.config.modelNameGeneration;
@@ -94,9 +93,9 @@ export class TongyiImageService extends BaseService {
     const taskData = (await response.json()) as {
       output?: { task_id?: string };
     };
-    
+
     debugLog('generateImageAsync - Task Response', taskData);
-    
+
     const taskId = taskData.output?.task_id;
     if (!taskId) {
       throw new Error('Tongyi text2image returned no task ID');
@@ -115,7 +114,7 @@ export class TongyiImageService extends BaseService {
     }
 
     debugLog('generateImageAsync - Final Result URL', resultUrl);
-    
+
     this.log(`Image generated successfully`);
     return resultUrl;
   }
@@ -167,9 +166,9 @@ export class TongyiImageService extends BaseService {
         }>;
       };
     };
-    
+
     debugLog('generateImageSync - API Response', data);
-    
+
     const choices = data.output?.choices;
     if (!choices || choices.length === 0) {
       throw new Error('Tongyi returned no choices');
@@ -186,7 +185,7 @@ export class TongyiImageService extends BaseService {
     }
 
     debugLog('generateImageSync - Final Result URL', imageItem.image);
-    
+
     this.log(`Image generated successfully`);
     return imageItem.image;
   }
@@ -266,9 +265,9 @@ export class TongyiImageService extends BaseService {
     const taskData = (await response.json()) as {
       output?: { task_id?: string };
     };
-    
+
     debugLog('editImageWanx - Task Response', taskData);
-    
+
     const taskId = taskData.output?.task_id;
     if (!taskId) {
       throw new Error('Tongyi wanx edit returned no task ID');
@@ -351,9 +350,9 @@ export class TongyiImageService extends BaseService {
     const taskData = (await response.json()) as {
       output?: { task_id?: string };
     };
-    
+
     debugLog('editImageI2I - Task Response', taskData);
-    
+
     const taskId = taskData.output?.task_id;
     if (!taskId) {
       throw new Error('Tongyi I2I returned no task ID');
@@ -416,7 +415,7 @@ export class DoubaoImageService extends BaseService {
     size: string = '1024x1024',
   ): Promise<string> {
     debugLog('DoubaoImageService.generateImage - Input Prompt', prompt);
-    
+
     this.log(`Generating image with Doubao: ${prompt.substring(0, 50)}...`);
 
     const url = `${this.arkBaseUrl}/images/generations`;
@@ -461,9 +460,9 @@ export class DoubaoImageService extends BaseService {
     if (!resultUrl) {
       throw new Error('Doubao returned a result without a URL');
     }
-    
+
     debugLog('DoubaoImageService.generateImage - Final Result URL', resultUrl);
-    
+
     this.log(`Image generated successfully`);
     return resultUrl;
   }
@@ -474,8 +473,11 @@ export class DoubaoImageService extends BaseService {
     _previousFrameUrl?: string | null,
   ): Promise<string> {
     debugLog('DoubaoImageService.editImage - Input Prompt', prompt);
-    debugLog('DoubaoImageService.editImage - Reference Image URL', imageUrl.substring(0, 50) + '...');
-    
+    debugLog(
+      'DoubaoImageService.editImage - Reference Image URL',
+      imageUrl.substring(0, 50) + '...',
+    );
+
     this.log(`Editing image with Doubao...`);
 
     const url = `${this.arkBaseUrl}/images/edits`;
@@ -488,10 +490,13 @@ export class DoubaoImageService extends BaseService {
       watermark: false,
     };
 
-    debugLog('DoubaoImageService.editImage - Request Payload (image URL truncated)', {
-      ...payload,
-      image: payload.image.substring(0, 50) + '...',
-    });
+    debugLog(
+      'DoubaoImageService.editImage - Request Payload (image URL truncated)',
+      {
+        ...payload,
+        image: payload.image.substring(0, 50) + '...',
+      },
+    );
 
     const response = await this.fetchWithRetry(url, {
       method: 'POST',
@@ -550,13 +555,16 @@ export class OpenAICompatImageService extends BaseService {
     size: string = '1024x1024',
   ): Promise<string> {
     debugLog('OpenAICompatImageService.generateImage - Input Prompt', prompt);
-    
+
     this.log(
       `Generating image via OpenAI-compat: ${prompt.substring(0, 50)}...`,
     );
 
     const url = this.getChatCompletionsUrl();
-    debugLog('OpenAICompatImageService.generateImage - Chat Completions URL', url);
+    debugLog(
+      'OpenAICompatImageService.generateImage - Chat Completions URL',
+      url,
+    );
     const normalizedSize = size.replace('*', 'x');
     const useImageTool = this.shouldUseOpenRouterImageTool();
 
@@ -574,7 +582,10 @@ export class OpenAICompatImageService extends BaseService {
       payload['tools'] = [{ type: 'openrouter:image_generation' }];
     }
 
-    debugLog('OpenAICompatImageService.generateImage - Request Payload', payload);
+    debugLog(
+      'OpenAICompatImageService.generateImage - Request Payload',
+      payload,
+    );
 
     let response = await this.fetchWithRetry(url, {
       method: 'POST',
@@ -825,25 +836,154 @@ export class OpenAICompatImageService extends BaseService {
     return `${header}${base64Payload}`;
   }
 
+  private inferMimeTypeFromUrl(urlValue: string): string {
+    try {
+      const parsed = new URL(urlValue);
+      const pathname = parsed.pathname.toLowerCase();
+      if (pathname.endsWith('.jpg') || pathname.endsWith('.jpeg')) {
+        return 'image/jpeg';
+      }
+      if (pathname.endsWith('.webp')) {
+        return 'image/webp';
+      }
+      if (pathname.endsWith('.gif')) {
+        return 'image/gif';
+      }
+    } catch {
+      // URL parse failure falls back to PNG.
+    }
+    return 'image/png';
+  }
+
+  private async toDataUrl(imageUrl: string): Promise<string> {
+    if (imageUrl.startsWith('data:image/')) {
+      return this.normalizeImagePayload(imageUrl);
+    }
+
+    const response = await this.fetchWithRetry(imageUrl, {
+      method: 'GET',
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch reference image for I2I edit: ${response.status} ${response.statusText}`,
+      );
+    }
+
+    const contentType = response.headers.get('content-type')?.split(';')[0];
+    const mimeType = contentType || this.inferMimeTypeFromUrl(imageUrl);
+    const arrayBuffer = await response.arrayBuffer();
+    const base64 = Buffer.from(arrayBuffer).toString('base64');
+    return `data:${mimeType};base64,${base64}`;
+  }
+
   async editImage(
     referenceImageUrl: string,
     prompt: string,
     _previousFrameUrl?: string | null,
   ): Promise<string> {
     debugLog('OpenAICompatImageService.editImage - Input Prompt', prompt);
-    debugLog('OpenAICompatImageService.editImage - Reference Image URL', referenceImageUrl.substring(0, 50) + '...');
-    
-    // The OpenAI image-edit endpoint only takes a single reference image
-    // and uses multipart/form-data, which adds non-trivial complexity.
-    // For now we fall back to a fresh generation that includes the prompt
-    // — most callers (e.g. animation frames) only need style consistency
-    // via the prompt rather than a true image-conditioned edit. Users who
-    // need real I2I should select a Tongyi or Doubao provider for image.
-    this.log(
-      'OpenAI-compat editImage falls back to plain text-to-image; use tongyi/doubao for true I2I.',
-      'warn',
+    debugLog(
+      'OpenAICompatImageService.editImage - Reference Image URL',
+      referenceImageUrl.substring(0, 50) + '...',
     );
-    return this.generateImage(`${prompt} (matching reference style)`);
+
+    this.log(
+      `Editing image via OpenAI-compat I2I: ${prompt.substring(0, 50)}...`,
+    );
+
+    const url = this.getChatCompletionsUrl();
+    const referenceDataUrl = await this.toDataUrl(referenceImageUrl);
+    const useImageTool = this.shouldUseOpenRouterImageTool();
+
+    const payload: Record<string, unknown> = {
+      model: this.config.modelNameEditing || this.config.modelNameGeneration,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: `${prompt}\n\nEdit the provided reference image and generate exactly one output image. Preserve character identity and style consistency.`,
+            },
+            {
+              type: 'image_url',
+              image_url: {
+                url: referenceDataUrl,
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    if (useImageTool) {
+      payload['tools'] = [{ type: 'openrouter:image_generation' }];
+    }
+
+    debugLog('OpenAICompatImageService.editImage - Request Payload', {
+      ...payload,
+      messages: '[omitted: contains base64 image payload]',
+    });
+
+    let response = await this.fetchWithRetry(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.config.apiKey}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+
+      if (
+        useImageTool &&
+        response.status === 404 &&
+        errorBody.includes('support tool use')
+      ) {
+        this.log(
+          'OpenRouter route does not support tool use during I2I edit; retrying without tools.',
+          'warn',
+        );
+
+        const fallbackPayload = {
+          model: payload['model'],
+          messages: payload['messages'],
+        };
+
+        response = await this.fetchWithRetry(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.config.apiKey}`,
+          },
+          body: JSON.stringify(fallbackPayload),
+        });
+
+        if (!response.ok) {
+          const fallbackErrorBody = await response.text();
+          throw new Error(
+            `OpenAI-compat I2I edit failed: ${response.status} - ${fallbackErrorBody}`,
+          );
+        }
+      } else {
+        throw new Error(
+          `OpenAI-compat I2I edit failed: ${response.status} - ${errorBody}`,
+        );
+      }
+    }
+
+    const data = (await response.json()) as Record<string, unknown>;
+    debugLog('OpenAICompatImageService.editImage - API Response', data);
+
+    const imageUrl = this.extractImageUrlFromChatCompletion(data);
+    if (!imageUrl) {
+      throw new Error('OpenAI-compat I2I edit returned no image URL');
+    }
+
+    return this.normalizeImagePayload(imageUrl);
   }
 }
 

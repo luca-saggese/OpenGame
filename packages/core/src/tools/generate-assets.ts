@@ -15,6 +15,7 @@ import {
   BaseToolInvocation,
   Kind,
   type ToolInvocation,
+  type ToolResultDisplay,
   type ToolResult,
 } from './tools.js';
 import type { Config } from '../config/config.js';
@@ -59,6 +60,7 @@ class GenerateAssetsInvocation extends BaseToolInvocation<
   private bgRemovalService: BackgroundRemovalService;
   private frameExtractionService: FrameExtractionService;
   private tilesetProcessor: TilesetProcessor;
+  private userWarnings: string[] = [];
 
   constructor(config: Config, params: GenerateAssetsParams) {
     super(params);
@@ -102,7 +104,30 @@ class GenerateAssetsInvocation extends BaseToolInvocation<
     return this.modelRouter;
   }
 
-  async execute(signal: AbortSignal): Promise<ToolResult> {
+  private addWarning(
+    message: string,
+    updateOutput?: (output: ToolResultDisplay) => void,
+  ): void {
+    this.userWarnings.push(message);
+    console.warn(`[GenerateAssets][FallbackWarning] ${message}`);
+    if (updateOutput) {
+      updateOutput(`[WARNING] ${message}`);
+    }
+  }
+
+  private buildPromptFingerprint(prompt: string): string {
+    let hash = 2166136261;
+    for (let i = 0; i < prompt.length; i++) {
+      hash ^= prompt.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0');
+  }
+
+  async execute(
+    signal: AbortSignal,
+    updateOutput?: (output: ToolResultDisplay) => void,
+  ): Promise<ToolResult> {
     try {
       this.ensureModelRouter();
     } catch (error) {
@@ -133,7 +158,7 @@ class GenerateAssetsInvocation extends BaseToolInvocation<
     const activePromises = new Set<Promise<void>>();
 
     // Process assets with concurrency control
-    for (const assetReq of this.params.assets) {
+    for (const [assetIndex, assetReq] of this.params.assets.entries()) {
       if (signal.aborted) break;
 
       // Wait if at max concurrency
@@ -158,6 +183,8 @@ class GenerateAssetsInvocation extends BaseToolInvocation<
                 assetPack,
                 absoluteAssetsDir,
                 signal,
+                assetIndex + 1,
+                this.params.assets.length,
               );
               break;
             case 'animation':
@@ -166,6 +193,7 @@ class GenerateAssetsInvocation extends BaseToolInvocation<
                 assetPack,
                 absoluteAssetsDir,
                 signal,
+                updateOutput,
               );
               break;
             case 'audio':
@@ -232,9 +260,16 @@ CODING INSTRUCTION (Phaser 3):
    this.sound.play('bgm', { loop: true });
 `;
 
+    const warningBlock =
+      this.userWarnings.length > 0
+        ? `\nWarnings (${this.userWarnings.length}):\n${this.userWarnings
+            .map((w) => `- ${w}`)
+            .join('\n')}`
+        : '';
+
     return {
       llmContent: instruction,
-      returnDisplay: `✅ Generated ${results.length} assets.\nErrors: ${errors.length}${errors.length > 0 ? '\n' + errors.join('\n') : ''}`,
+      returnDisplay: `Generated ${results.length} assets.\nErrors: ${errors.length}${errors.length > 0 ? '\n' + errors.join('\n') : ''}${warningBlock}`,
     };
   }
 
@@ -277,6 +312,8 @@ CODING INSTRUCTION (Phaser 3):
     assetPack: AssetPack,
     assetsDir: string,
     signal: AbortSignal,
+    assetIndex?: number,
+    totalAssets?: number,
   ): Promise<void> {
     if (signal.aborted) throw new Error('Aborted');
 
@@ -289,14 +326,41 @@ CODING INSTRUCTION (Phaser 3):
       IMPORTANT: Pure white background, no text, no position offset, ONE object only.
     `;
 
-    const imageUrl = await this.modelRouter.generateImage(
+    const compactPrompt = prompt.replace(/\s+/g, ' ').trim();
+    const promptFingerprint = this.buildPromptFingerprint(compactPrompt);
+    const modelRouter = this.modelRouter;
+    const provider = modelRouter.imageConfig.provider;
+    const modelName = modelRouter.imageConfig.model;
+
+    console.log(
+      `[GenerateAssets][ImageDebug] Batch ${assetIndex ?? '?'} / ${totalAssets ?? '?'} | key=${req.key} | provider=${provider} | model=${modelName}`,
+    );
+    console.log(
+      `[GenerateAssets][ImageDebug] image assets are generated independently (one model call per key, no shared latent state).`,
+    );
+    console.log(
+      `[GenerateAssets][ImageDebug] promptFingerprint=${promptFingerprint} | size=${req.size || '1024*1024'}`,
+    );
+    console.log(
+      `[GenerateAssets][ImageDebug] promptPreview=${compactPrompt.slice(0, 220)}${compactPrompt.length > 220 ? '...' : ''}`,
+    );
+
+    const imageUrl = await modelRouter.generateImage(
       prompt,
       req.size || '1024*1024',
+    );
+
+    console.log(
+      `[GenerateAssets][ImageDebug] resultUrl=${imageUrl.slice(0, 140)}${imageUrl.length > 140 ? '...' : ''}`,
     );
 
     // Remove background
     const buffer = await this.bgRemovalService.removeBackgroundSafe(imageUrl);
     const cdnUrl = await this.saveAsset(buffer, req.key, assetsDir);
+
+    console.log(
+      `[GenerateAssets][ImageDebug] savedKey=${req.key} | cdnUrl=${cdnUrl}`,
+    );
 
     this.updateAssetPack(assetPack, req.key, 'image', cdnUrl);
   }
@@ -306,6 +370,7 @@ CODING INSTRUCTION (Phaser 3):
     assetPack: AssetPack,
     assetsDir: string,
     signal: AbortSignal,
+    updateOutput?: (output: ToolResultDisplay) => void,
   ): Promise<void> {
     if (signal.aborted) throw new Error('Aborted');
 
@@ -345,6 +410,7 @@ CODING INSTRUCTION (Phaser 3):
         assetPack,
         assetsDir,
         signal,
+        updateOutput,
       );
     } else {
       // Use I2I (Image-to-Image) approach - may have OSS accessibility issues
@@ -357,6 +423,7 @@ CODING INSTRUCTION (Phaser 3):
         assetPack,
         assetsDir,
         signal,
+        updateOutput,
       );
     }
   }
@@ -367,14 +434,16 @@ CODING INSTRUCTION (Phaser 3):
     assetPack: AssetPack,
     assetsDir: string,
     signal: AbortSignal,
+    updateOutput?: (output: ToolResultDisplay) => void,
   ): Promise<void> {
     // Check if ffmpeg is available for local frame extraction
     const ffmpegAvailable =
       await this.frameExtractionService.isFFmpegAvailable();
 
     if (!ffmpegAvailable) {
-      console.warn(
-        `[GenerateAssets] FFmpeg not available, falling back to I2I mode`,
+      this.addWarning(
+        `Animation ${req.key}: FFmpeg not available, fallback to I2I frame generation (may reduce frame consistency).`,
+        updateOutput,
       );
       await this.generateAnimationViaI2I(
         req,
@@ -382,6 +451,7 @@ CODING INSTRUCTION (Phaser 3):
         assetPack,
         assetsDir,
         signal,
+        updateOutput,
       );
       return;
     }
@@ -535,8 +605,10 @@ CODING INSTRUCTION (Phaser 3):
           `[GenerateAssets] I2V animation ${animation.name} completed!`,
         );
       } catch (error) {
-        console.warn(
-          `[GenerateAssets] I2V failed for ${animation.name}: ${error}`,
+        const reason = error instanceof Error ? error.message : String(error);
+        this.addWarning(
+          `Animation ${req.key}/${animation.name}: I2V failed (${reason}). Falling back to I2I frame generation.`,
+          updateOutput,
         );
         console.log(
           `[GenerateAssets] Falling back to I2I for ${animation.name}...`,
@@ -559,6 +631,7 @@ CODING INSTRUCTION (Phaser 3):
     assetPack: AssetPack,
     assetsDir: string,
     signal: AbortSignal,
+    _updateOutput?: (output: ToolResultDisplay) => void,
   ): Promise<void> {
     for (const animation of req.animations) {
       if (signal.aborted) break;
